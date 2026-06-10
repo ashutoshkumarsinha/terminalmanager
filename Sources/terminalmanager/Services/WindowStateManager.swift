@@ -113,6 +113,8 @@ final class MainWindowObserver: NSObject {
     private var observers: [NSObjectProtocol] = []
     private weak var window: NSWindow?
     private(set) var didApplyLaunchSettings = false
+    var didAttachWindow = false
+    private var persistWorkItem: DispatchWorkItem?
 
     func attach(to window: NSWindow) {
         guard self.window !== window else { return }
@@ -143,8 +145,13 @@ final class MainWindowObserver: NSObject {
     }
 
     private func persistWindowState() {
-        guard let window else { return }
-        WindowStateManager.save(from: window)
+        persistWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let window = self?.window else { return }
+            WindowStateManager.save(from: window)
+        }
+        persistWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
     }
 
     deinit {

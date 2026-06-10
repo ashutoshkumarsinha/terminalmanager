@@ -18,7 +18,13 @@ let package = Package(
                 "SwiftTerm",
                 .product(name: "TOMLKit", package: "TOMLKit")
             ],
-            path: "Sources/terminalmanager"
+            path: "Sources/terminalmanager",
+            swiftSettings: [
+                .unsafeFlags(
+                    ["-cross-module-optimization"],
+                    .when(configuration: .release)
+                )
+            ]
         )
     ]
 )

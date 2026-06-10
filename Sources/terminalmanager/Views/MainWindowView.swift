@@ -16,6 +16,7 @@ private struct MainWindowConfigurator: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        guard !context.coordinator.didAttachWindow else { return }
         configureWindow(from: nsView, coordinator: context.coordinator)
     }
 
@@ -28,6 +29,7 @@ private struct MainWindowConfigurator: NSViewRepresentable {
                 coordinator.markLaunchSettingsApplied()
             }
             coordinator.attach(to: window)
+            coordinator.didAttachWindow = true
         }
     }
 }
@@ -168,21 +170,11 @@ private struct TabChipView: View {
 struct ShellCommandBar: View {
     @EnvironmentObject private var appState: AppState
     @FocusState private var isFocused: Bool
+    @State private var commandText = ""
 
     private enum Metrics {
         static let lineHeight: CGFloat = 22
         static let horizontalInset: CGFloat = 6
-    }
-
-    private var commandBinding: Binding<String> {
-        Binding(
-            get: { appState.broadcastManager.commandText },
-            set: { appState.broadcastManager.commandText = $0 }
-        )
-    }
-
-    private var commandText: String {
-        appState.broadcastManager.commandText
     }
 
     private var openTabIDs: [UUID] {
@@ -199,7 +191,7 @@ struct ShellCommandBar: View {
     }
 
     private var canSend: Bool {
-        appState.broadcastManager.canSend(to: targetTabIDs)
+        appState.broadcastManager.canSend(to: targetTabIDs, commandText: commandText)
     }
 
     var body: some View {
@@ -214,7 +206,7 @@ struct ShellCommandBar: View {
             .appHelp("Send the command to the selected tab or all open tabs")
 
             ZStack(alignment: .leading) {
-                TextEditor(text: commandBinding)
+                TextEditor(text: $commandText)
                     .font(.system(.body, design: .monospaced))
                     .frame(height: Metrics.lineHeight)
                     .scrollContentBackground(.hidden)
@@ -259,7 +251,9 @@ struct ShellCommandBar: View {
     }
 
     private func sendCommand() {
+        appState.broadcastManager.commandText = commandText
         appState.broadcastManager.send(using: openTabIDs, selectedTabID: appState.selectedTabID)
+        commandText = ""
     }
 }
 
@@ -279,17 +273,12 @@ struct SplitPaneView: View {
                     .frame(width: size.width, height: size.height)
                 } else {
                     let visibleTabIDs = workspaceVisibleTabIDs()
-                    ForEach(sortedTabs(visibleTabIDs: visibleTabIDs)) { tab in
-                        let rect = workspaceRect(for: tab.id, size: size)
-                        let isVisible = visibleTabIDs.contains(tab.id)
+                    ForEach(visibleWorkspaceTabs(visibleTabIDs: visibleTabIDs)) { tab in
+                        let rect = workspaceRect(for: tab.id, size: size, visibleTabIDs: visibleTabIDs)
                         TerminalHostView(tab: tab, isActive: true)
                             .id(tab.id)
                             .frame(width: max(rect.width, 1), height: max(rect.height, 1))
                             .offset(x: rect.minX, y: rect.minY)
-                            .opacity(isVisible ? 1 : 0)
-                            .allowsHitTesting(isVisible)
-                            .accessibilityHidden(!isVisible)
-                            .zIndex(isVisible ? 1 : 0)
                     }
                 }
             }
@@ -310,18 +299,11 @@ struct SplitPaneView: View {
         return []
     }
 
-    private func sortedTabs(visibleTabIDs: Set<UUID>) -> [TerminalTab] {
-        appState.tabs.sorted { lhs, rhs in
-            let lhsVisible = visibleTabIDs.contains(lhs.id)
-            let rhsVisible = visibleTabIDs.contains(rhs.id)
-            if lhsVisible != rhsVisible {
-                return !lhsVisible
-            }
-            return false
-        }
+    private func visibleWorkspaceTabs(visibleTabIDs: Set<UUID>) -> [TerminalTab] {
+        appState.tabs.filter { visibleTabIDs.contains($0.id) }
     }
 
-    private func workspaceRect(for tabID: UUID, size: CGSize) -> CGRect {
+    private func workspaceRect(for tabID: UUID, size: CGSize, visibleTabIDs: Set<UUID>) -> CGRect {
         let fullBounds = CGRect(origin: .zero, size: size)
         if let selectedTabID = appState.selectedTabID,
            appState.hasSplitLayout(for: selectedTabID),

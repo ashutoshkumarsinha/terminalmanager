@@ -30,19 +30,16 @@ final class AppState: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
-        self.broadcastManager.objectWillChange
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
     }
 
     var settings: AppSettings {
         get { configStore.settings }
         set {
+            let previousLevel = configStore.settings.logLevel
             configStore.updateSettings(newValue)
-            AppLogger.shared.configure(level: newValue.logLevel)
+            if newValue.logLevel != previousLevel {
+                AppLogger.shared.configure(level: newValue.logLevel)
+            }
         }
     }
 

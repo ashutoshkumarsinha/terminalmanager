@@ -24,12 +24,20 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     }
 
     func updateNSView(_ container: TerminalContainerView, context: Context) {
-        context.coordinator.profile = profile
-        context.coordinator.isActive = isActive
-        context.coordinator.onSendInput = onSendInput
-        context.coordinator.registerBroadcastHandlerIfNeeded()
-        context.coordinator.reattachIfNeeded()
-        context.coordinator.startIfNeeded()
+        let coordinator = context.coordinator
+        let wasActive = coordinator.isActive
+        let profileChanged = coordinator.profile?.id != profile.id
+
+        coordinator.profile = profile
+        coordinator.isActive = isActive
+        coordinator.onSendInput = onSendInput
+        terminalStore.updateSessionLabel(tabID: tabID, name: profile.name)
+        coordinator.registerBroadcastHandlerIfNeeded()
+
+        if profileChanged || wasActive != isActive {
+            coordinator.reattachIfNeeded()
+            coordinator.startIfNeeded()
+        }
     }
 
     static func dismantleNSView(_ container: TerminalContainerView, coordinator: Coordinator) {
@@ -55,6 +63,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         func attach(container: TerminalContainerView, profile: SessionProfile) {
             self.container = container
             self.profile = profile
+            terminalStore.updateSessionLabel(tabID: tabID, name: profile.name)
         }
 
         func registerBroadcastHandlerIfNeeded() {
@@ -66,8 +75,8 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         }
 
         func reattachIfNeeded() {
-            guard let container else { return }
-            let terminal = terminalStore.terminal(for: tabID)
+            guard let container, let profile else { return }
+            let terminal = terminalStore.terminal(for: tabID, sessionName: profile.name)
             if container.terminal !== terminal {
                 container.terminal?.removeFromSuperview()
                 container.terminal = terminal
@@ -75,10 +84,6 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             }
             terminal.autoresizingMask = [.width, .height]
             terminal.frame = container.bounds
-            if terminalStore.isRunning(tabID: tabID) {
-                terminal.setNeedsDisplay(terminal.bounds)
-                terminal.layoutSubtreeIfNeeded()
-            }
         }
 
         func startIfNeeded() {
@@ -132,7 +137,9 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
         private func send(_ text: String) {
             guard let terminal = container?.terminal, let data = text.data(using: .utf8) else { return }
-            terminal.process.send(data: ArraySlice(data))
+            let slice = ArraySlice(data)
+            TerminalIOLogger.shared.logInput(tabID: tabID, session: profile?.name ?? "", data: slice)
+            terminal.process.send(data: slice)
         }
 
         private func syncTerminalSize(_ terminal: LocalProcessTerminalView) {
@@ -151,6 +158,9 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 final class TerminalContainerView: NSView {
     weak var coordinator: EmbeddedTerminalView.Coordinator?
     var terminal: LocalProcessTerminalView?
+    private var lastReportedCols = 0
+    private var lastReportedRows = 0
+    private var resizeWorkItem: DispatchWorkItem?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -162,25 +172,33 @@ final class TerminalContainerView: NSView {
 
     override func layout() {
         super.layout()
-        if let terminal {
-            terminal.frame = bounds
-            if bounds.width > 10, bounds.height > 10 {
-                terminal.setNeedsDisplay(bounds)
-                if terminal.process.running {
-                    terminal.sizeChanged(
-                        source: terminal,
-                        newCols: terminal.getTerminal().cols,
-                        newRows: terminal.getTerminal().rows
-                    )
-                }
-            }
+        guard let terminal else { return }
+        terminal.frame = bounds
+        guard bounds.width > 10, bounds.height > 10, terminal.process.running else { return }
+
+        let cols = Int(terminal.getTerminal().cols)
+        let rows = Int(terminal.getTerminal().rows)
+        guard cols != lastReportedCols || rows != lastReportedRows else { return }
+
+        resizeWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self, weak terminal] in
+            guard let self, let terminal, terminal.process.running else { return }
+            let cols = Int(terminal.getTerminal().cols)
+            let rows = Int(terminal.getTerminal().rows)
+            guard cols != self.lastReportedCols || rows != self.lastReportedRows else { return }
+            self.lastReportedCols = cols
+            self.lastReportedRows = rows
+            terminal.sizeChanged(source: terminal, newCols: cols, newRows: rows)
         }
-        coordinator?.startIfNeeded()
+        resizeWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
-        coordinator?.reattachIfNeeded()
+        if oldSize != bounds.size {
+            coordinator?.reattachIfNeeded()
+        }
     }
 }
 

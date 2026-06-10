@@ -275,6 +275,8 @@ Customize via `[[shortcuts]]` entries in `config.toml`.
 
 Logs: `~/.terminalmanager/logs/terminalmanager-YYYY-MM-DD.log`
 
+Terminal session I/O (commands typed and shell output) is logged separately to `~/.terminalmanager/logs/terminal-io-YYYY-MM-DD.log`.
+
 ---
 
 ## 13. Further Reading

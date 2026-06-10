@@ -12,6 +12,7 @@ final class ConfigStore: ObservableObject {
     }()
 
     private let jsonDecoder = JSONDecoder()
+    private var saveSessionsWorkItem: DispatchWorkItem?
 
     var configTomlURL: URL { FileLocations.configTomlURL }
 
@@ -47,6 +48,15 @@ final class ConfigStore: ObservableObject {
         }
     }
 
+    func scheduleSaveSessions() {
+        saveSessionsWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.saveSessions()
+        }
+        saveSessionsWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+    }
+
     func updateSettings(_ newSettings: AppSettings) {
         let sessionsPathChanged = newSettings.sessionsFile != settings.sessionsFile
         settings = newSettings
@@ -58,7 +68,7 @@ final class ConfigStore: ObservableObject {
 
     func updateSessionTree(_ tree: [SessionTreeItem]) {
         sessionTree = tree
-        saveSessions()
+        scheduleSaveSessions()
     }
 
     func exportSessions(to url: URL) throws {
@@ -71,7 +81,7 @@ final class ConfigStore: ObservableObject {
         let data = try Data(contentsOf: url)
         let config = try jsonDecoder.decode(SessionConfiguration.self, from: data)
         sessionTree = config.sessionTree
-        saveSessions()
+        scheduleSaveSessions()
     }
 
     @discardableResult
@@ -84,7 +94,7 @@ final class ConfigStore: ObservableObject {
         } else {
             sessionTree = insertItemInList(.session(saved), beforeItemID: nil, in: sessionTree)
         }
-        saveSessions()
+        scheduleSaveSessions()
         return saved
     }
 
@@ -104,7 +114,7 @@ final class ConfigStore: ObservableObject {
         } else {
             sessionTree = insertItemInList(.session(copy), beforeItemID: beforeItemID, in: sessionTree)
         }
-        saveSessions()
+        scheduleSaveSessions()
         AppLogger.shared.info("Duplicated session '\(source.name)' as '\(copy.name)'")
         return copy
     }
@@ -113,7 +123,7 @@ final class ConfigStore: ObservableObject {
     func addFolder(_ name: String) -> SessionFolder {
         let folder = SessionFolder(name: uniqueFolderName(basedOn: name))
         sessionTree = sessionTree + [.folder(folder)]
-        saveSessions()
+        scheduleSaveSessions()
         return folder
     }
 
@@ -121,7 +131,7 @@ final class ConfigStore: ObservableObject {
     func addGroup(_ name: String) -> SessionGroup {
         let group = SessionGroup(name: uniqueGroupName(basedOn: name))
         sessionTree = sessionTree + [.group(group)]
-        saveSessions()
+        scheduleSaveSessions()
         return group
     }
 
@@ -129,7 +139,7 @@ final class ConfigStore: ObservableObject {
     func saveGroup(name: String, members: [SessionGroupMember], layout: GroupLayoutNode?) -> SessionGroup {
         let group = SessionGroup(name: uniqueGroupName(basedOn: name), members: members, layout: layout)
         sessionTree = sessionTree + [.group(group)]
-        saveSessions()
+        scheduleSaveSessions()
         return group
     }
 
@@ -154,7 +164,7 @@ final class ConfigStore: ObservableObject {
             group.name = trimmed
             return .group(group)
         }
-        saveSessions()
+        scheduleSaveSessions()
         return true
     }
 
@@ -178,7 +188,7 @@ final class ConfigStore: ObservableObject {
 
         let beforeItemID = siblingIDAfter(sessionID: id, in: sessionTree)
         sessionTree = insertItemInList(.group(copy), beforeItemID: beforeItemID, in: sessionTree)
-        saveSessions()
+        scheduleSaveSessions()
         AppLogger.shared.info("Duplicated group '\(source.name)' as '\(copy.name)'")
         return copy
     }
@@ -190,7 +200,7 @@ final class ConfigStore: ObservableObject {
             guard case .group = item else { return item }
             return .group(group)
         }
-        saveSessions()
+        scheduleSaveSessions()
         return true
     }
 
@@ -241,7 +251,7 @@ final class ConfigStore: ObservableObject {
             guard case .session = item else { return item }
             return .session(saved)
         }
-        saveSessions()
+        scheduleSaveSessions()
         return true
     }
 
@@ -254,7 +264,7 @@ final class ConfigStore: ObservableObject {
             folder.name = trimmed
             return .folder(folder)
         }
-        saveSessions()
+        scheduleSaveSessions()
         return true
     }
 
@@ -263,7 +273,7 @@ final class ConfigStore: ObservableObject {
         guard let item = item(withID: id) else { return [] }
         let removedSessions = Self.collectSessions(in: item)
         sessionTree = removeFromTree(sessionTree, id: id)
-        saveSessions()
+        scheduleSaveSessions()
         return removedSessions
     }
 
@@ -305,7 +315,7 @@ final class ConfigStore: ObservableObject {
             beforeItemID: beforeItemID,
             in: extracted.tree
         )
-        saveSessions()
+        scheduleSaveSessions()
         AppLogger.shared.info("Moved session item \(itemID)")
         return true
     }
@@ -644,7 +654,7 @@ final class ConfigStore: ObservableObject {
         let url = sessionsURL
         guard FileManager.default.fileExists(atPath: url.path) else {
             sessionTree = sampleSessionTree()
-            saveSessions()
+            scheduleSaveSessions()
             return
         }
         do {

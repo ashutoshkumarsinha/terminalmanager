@@ -26,6 +26,10 @@ rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$PRODUCT" "$CONTENTS/MacOS/terminalmanager"
 chmod +x "$CONTENTS/MacOS/terminalmanager"
+
+if [[ "$CONFIG" == "release" ]]; then
+  strip -x "$CONTENTS/MacOS/terminalmanager"
+fi
 cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
 
 # Ship example config inside the bundle for reference.
@@ -36,6 +40,7 @@ ICON_SRC="$ROOT/terminal.png"
 if [[ -f "$ICON_SRC" ]]; then
   ICONSET="$(mktemp -d)/AppIcon.iconset"
   mkdir -p "$ICONSET"
+  # macOS icon sizes; omit 1024@2x — rarely used and saves ~80 KB in the bundle.
   sips -z 16 16 "$ICON_SRC" --out "$ICONSET/icon_16x16.png" >/dev/null
   sips -z 32 32 "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png" >/dev/null
   sips -z 32 32 "$ICON_SRC" --out "$ICONSET/icon_32x32.png" >/dev/null
@@ -45,7 +50,6 @@ if [[ -f "$ICON_SRC" ]]; then
   sips -z 256 256 "$ICON_SRC" --out "$ICONSET/icon_256x256.png" >/dev/null
   sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
   sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png" >/dev/null
-  sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
   iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/AppIcon.icns"
   rm -rf "$(dirname "$ICONSET")"
 else

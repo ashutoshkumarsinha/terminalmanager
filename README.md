@@ -91,6 +91,8 @@ make dmg
 
 Output: `dist/Terminal Manager-1.0.0.dmg` (version from `Resources/Info.plist`). The disk image contains the app and an Applications folder shortcut for drag-and-drop install.
 
+Release builds strip debug symbols from the binary (~3 MB on disk vs ~9 MB for unstripped debug). Use `make package-release` or `make dmg`, not `make package`, for distribution.
+
 The distributed build is not code-signed or notarized; recipients may need to allow the app in **System Settings → Privacy & Security** on first launch.
 
 With [devbox](https://www.jetify.com/devbox):

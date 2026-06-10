@@ -4,20 +4,27 @@ import SwiftTerm
 
 @MainActor
 final class TerminalSessionStore {
-    private var terminals: [UUID: LocalProcessTerminalView] = [:]
+    private var terminals: [UUID: LoggedLocalProcessTerminalView] = [:]
 
-    func terminal(for tabID: UUID) -> LocalProcessTerminalView {
+    func terminal(for tabID: UUID, sessionName: String = "") -> LoggedLocalProcessTerminalView {
         if let existing = terminals[tabID] {
+            existing.sessionLabel = sessionName
             return existing
         }
-        let terminal = LocalProcessTerminalView(frame: .zero)
+        let terminal = LoggedLocalProcessTerminalView(frame: .zero)
+        terminal.tabID = tabID
+        terminal.sessionLabel = sessionName
         terminal.autoresizingMask = [.width, .height]
         configureAppearance(terminal)
         terminals[tabID] = terminal
         return terminal
     }
 
-    private func configureAppearance(_ terminal: LocalProcessTerminalView) {
+    func updateSessionLabel(tabID: UUID, name: String) {
+        terminals[tabID]?.sessionLabel = name
+    }
+
+    private func configureAppearance(_ terminal: LoggedLocalProcessTerminalView) {
         terminal.font = TerminalFont.preferredMonospaceFont()
         terminal.nativeForegroundColor = .textColor
         terminal.nativeBackgroundColor = .textBackgroundColor

@@ -23,16 +23,19 @@ final class BroadcastManager: ObservableObject {
 
     func register(tabID: UUID, handler: @escaping (String) -> Void) {
         sendHandlers[tabID] = handler
-        objectWillChange.send()
     }
 
     func unregister(tabID: UUID) {
         sendHandlers.removeValue(forKey: tabID)
-        objectWillChange.send()
     }
 
-    func canSend(to tabIDs: [UUID]) -> Bool {
-        !resolvedTabIDs(from: tabIDs).isEmpty && Self.normalizedPayload(from: commandText) != nil
+    func hasHandler(for tabID: UUID) -> Bool {
+        sendHandlers[tabID] != nil
+    }
+
+    func canSend(to tabIDs: [UUID], commandText: String? = nil) -> Bool {
+        let text = commandText ?? self.commandText
+        return !resolvedTabIDs(from: tabIDs).isEmpty && Self.normalizedPayload(from: text) != nil
     }
 
     func send(to tabIDs: [UUID]) {

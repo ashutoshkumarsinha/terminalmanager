@@ -30,6 +30,7 @@ final class AppLogger: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.terminalmanager.logger", qos: .utility)
     private var minimumLevel: LogLevel = .info
     private var logFileURL: URL?
+    private var fileHandle: FileHandle?
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
@@ -52,7 +53,12 @@ final class AppLogger: @unchecked Sendable {
             let logsDir = FileLocations.logsDirectory
             try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
             let day = fileNameFormatter.string(from: Date())
-            logFileURL = logsDir.appendingPathComponent("terminalmanager-\(day).log")
+            let url = logsDir.appendingPathComponent("terminalmanager-\(day).log")
+            if logFileURL != url {
+                try? fileHandle?.close()
+                fileHandle = nil
+                logFileURL = url
+            }
         }
     }
 
@@ -75,22 +81,15 @@ final class AppLogger: @unchecked Sendable {
     private func log(_ level: LogLevel, _ message: String, file: String, function: String, line: Int) {
         queue.async {
             guard level >= self.minimumLevel else { return }
-            guard let logFileURL = self.currentLogFileURL() else { return }
+            guard let handle = self.openLogHandle() else { return }
 
             let timestamp = self.dateFormatter.string(from: Date())
             let source = (file as NSString).lastPathComponent
             let entry = "[\(timestamp)] [\(level.label)] [\(source):\(line) \(function)] \(message)\n"
 
             if let data = entry.data(using: .utf8) {
-                if FileManager.default.fileExists(atPath: logFileURL.path) {
-                    if let handle = try? FileHandle(forWritingTo: logFileURL) {
-                        handle.seekToEndOfFile()
-                        handle.write(data)
-                        try? handle.close()
-                    }
-                } else {
-                    try? data.write(to: logFileURL, options: .atomic)
-                }
+                handle.seekToEndOfFile()
+                handle.write(data)
             }
 
             #if DEBUG
@@ -99,17 +98,31 @@ final class AppLogger: @unchecked Sendable {
         }
     }
 
-    private func currentLogFileURL() -> URL? {
-        if let logFileURL {
+    private func openLogHandle() -> FileHandle? {
+        if let fileHandle, let logFileURL {
             let day = fileNameFormatter.string(from: Date())
             if logFileURL.lastPathComponent == "terminalmanager-\(day).log" {
-                return logFileURL
+                return fileHandle
             }
         }
+
         let logsDir = FileLocations.logsDirectory
         let day = fileNameFormatter.string(from: Date())
         let url = logsDir.appendingPathComponent("terminalmanager-\(day).log")
         logFileURL = url
-        return url
+
+        do {
+            try FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
+            try fileHandle?.close()
+            let handle = try FileHandle(forWritingTo: url)
+            fileHandle = handle
+            return handle
+        } catch {
+            fileHandle = nil
+            return nil
+        }
     }
 }
