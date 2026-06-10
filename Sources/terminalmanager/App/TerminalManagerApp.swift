@@ -53,10 +53,11 @@ struct TerminalManagerApp: App {
                 .keyboardShortcut("l", modifiers: [.command, .shift])
             }
 
-            CommandGroup(after: .help) {
-                Button("User Guide") {
+            CommandGroup(replacing: .help) {
+                Button("\(AppInfo.displayName) Help") {
                     appState.openUserGuide = true
                 }
+                .keyboardShortcut("?", modifiers: .command)
             }
 
             CommandGroup(after: .pasteboard) {

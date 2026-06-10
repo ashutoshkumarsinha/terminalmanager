@@ -533,6 +533,9 @@ struct MainWindowView: View {
             openWindow(id: "userGuide")
             appState.openUserGuide = false
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openUserGuideRequested)) { _ in
+            openWindow(id: "userGuide")
+        }
         .toolbar {
             ToolbarItemGroup {
                 Button {

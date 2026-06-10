@@ -4,6 +4,10 @@ enum AppInfo {
     static let displayName = "Terminal Manager"
 }
 
+extension Notification.Name {
+    static let openUserGuideRequested = Notification.Name("com.terminalmanager.openUserGuide")
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static weak var shared: AppDelegate?
 
@@ -33,6 +37,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         applyDisplayName()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func application(_ application: NSApplication, openHelpAnchor helpAnchor: String?) -> Bool {
+        NotificationCenter.default.post(name: .openUserGuideRequested, object: nil)
+        return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
