@@ -1,0 +1,57 @@
+# Terminal Manager — application configuration
+# Copy to ~/.terminalmanager/config.toml or set TERMINALMANAGER_CONFIG to this file.
+# Session profiles are stored separately; see [sessions].file below.
+
+[app]
+version = 1
+single_instance = false  # true = one app instance per config directory
+
+[window]
+start_maximized = false  # open window zoomed on launch
+restore_position = true  # persist frame/zoom in window-state.json
+
+[terminal]
+app_path = "/Applications/Ghostty.app"
+backend = "embedded"     # embedded | ghostty
+
+[ui]
+show_sidebar = true
+show_command_bar = true  # send-command toolbar above tab strip
+broadcast_enabled = true # enables broadcast/command bar feature
+confirm_on_exit = false  # prompt before quitting
+
+[sessions]
+file = "sessions.json"   # relative to config dir, or absolute path
+
+[logging]
+level = "info"           # debug | info | warning | error
+
+[[shortcuts]]
+id = "newTab"
+key = "t"
+modifiers = ["command"]
+
+[[shortcuts]]
+id = "closeTab"
+key = "w"
+modifiers = ["command"]
+
+[[shortcuts]]
+id = "nextTab"
+key = "]"
+modifiers = ["command", "shift"]
+
+[[shortcuts]]
+id = "prevTab"
+key = "["
+modifiers = ["command", "shift"]
+
+[[shortcuts]]
+id = "duplicateSession"
+key = "d"
+modifiers = ["command"]
+
+[[shortcuts]]
+id = "commandBar"
+key = "l"
+modifiers = ["command", "shift"]

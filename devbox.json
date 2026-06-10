@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.13.7/.schema/devbox.schema.json",
+  "name": "terminalmanager",
+  "description": "Tabbed terminal session manager for macOS",
+  "packages": ["swift@latest"],
+  "shell": {
+    "init_hook": ["echo 'terminalmanager dev environment ready'"],
+    "scripts": {
+      "build": "swift build -c release",
+      "package": "bash scripts/package-app.sh release",
+      "bootstrap": "bash scripts/bootstrap-config.sh",
+      "run": "bash scripts/run-app.sh",
+      "test": "swift test"
+    }
+  }
+}

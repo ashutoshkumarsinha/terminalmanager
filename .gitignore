@@ -1,0 +1,7 @@
+Terminal Manager.app/
+.build/
+.swiftpm/
+Package.resolved
+.DS_Store
+*.xcodeproj/xcuserdata/
+DerivedData/
