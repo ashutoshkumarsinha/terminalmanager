@@ -1,4 +1,5 @@
 Terminal Manager.app/
+dist/
 .build/
 .swiftpm/
 Package.resolved
