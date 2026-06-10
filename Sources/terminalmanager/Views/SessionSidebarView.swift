@@ -50,6 +50,15 @@ struct SessionSidebarView: View {
             sidebarBackgroundContextMenu()
         }
         .navigationTitle("Sessions")
+        .onAppear {
+            appState.sessionTreeSelectionID = selectedItemID
+        }
+        .onChange(of: selectedItemID) { _, itemID in
+            appState.sessionTreeSelectionID = itemID
+        }
+        .onChange(of: appState.pendingSessionTreeAction) { _, action in
+            handleSessionTreeAction(action)
+        }
         .toolbar {
             ToolbarItemGroup {
                 if let profile = selectedSession {
@@ -266,6 +275,26 @@ struct SessionSidebarView: View {
         let folder = appState.configStore.addFolder("New Folder")
         selectedItemID = folder.id
         renamingFolder = folder
+    }
+
+    private func handleSessionTreeAction(_ action: SessionTreeAction?) {
+        guard let action else { return }
+        defer { appState.consumeSessionTreeAction() }
+
+        switch action {
+        case .createFolder:
+            createFolder()
+        case .renameFolder:
+            guard let folder = appState.selectedSessionTreeFolder else { return }
+            renamingFolder = folder
+        case .deleteFolder:
+            guard let folder = appState.selectedSessionTreeFolder else { return }
+            itemPendingDeletion = .folder(folder)
+        case .addNewSession:
+            createSession(in: appState.folderIDForNewSession())
+        case .createGroupFromOpenTabs:
+            showSaveGroupSheet = true
+        }
     }
 
     private func createSession(in folderID: UUID? = nil) {

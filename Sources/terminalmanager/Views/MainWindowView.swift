@@ -170,15 +170,8 @@ struct ShellCommandBar: View {
     @FocusState private var isFocused: Bool
 
     private enum Metrics {
-        static let lineHeight: CGFloat = 17
-        static let verticalInset: CGFloat = 8
+        static let lineHeight: CGFloat = 22
         static let horizontalInset: CGFloat = 6
-        static let maxVisibleLines = 5
-
-        static func height(forLineCount lineCount: Int) -> CGFloat {
-            let visibleLines = min(max(lineCount, 1), maxVisibleLines)
-            return CGFloat(visibleLines) * lineHeight + verticalInset * 2
-        }
     }
 
     private var commandBinding: Binding<String> {
@@ -190,19 +183,6 @@ struct ShellCommandBar: View {
 
     private var commandText: String {
         appState.broadcastManager.commandText
-    }
-
-    private var lineCount: Int {
-        if commandText.isEmpty { return 1 }
-        return commandText.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
-    }
-
-    private var editorHeight: CGFloat {
-        Metrics.height(forLineCount: lineCount)
-    }
-
-    private var showsVerticalScrollbar: Bool {
-        lineCount > Metrics.maxVisibleLines
     }
 
     private var openTabIDs: [UUID] {
@@ -223,7 +203,7 @@ struct ShellCommandBar: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             Picker("Target", selection: $appState.broadcastManager.target) {
                 ForEach(CommandTarget.allCases) { target in
                     Text(target.label).tag(target)
@@ -231,17 +211,15 @@ struct ShellCommandBar: View {
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: 240)
-            .padding(.top, 4)
             .appHelp("Send the command to the selected tab or all open tabs")
 
-            ZStack(alignment: .topLeading) {
+            ZStack(alignment: .leading) {
                 TextEditor(text: commandBinding)
                     .font(.system(.body, design: .monospaced))
-                    .frame(height: editorHeight)
+                    .frame(height: Metrics.lineHeight)
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, Metrics.horizontalInset)
-                    .padding(.vertical, Metrics.verticalInset)
-                    .scrollIndicators(showsVerticalScrollbar ? .visible : .hidden, axes: .vertical)
+                    .scrollIndicators(.automatic, axes: .vertical)
                     .focused($isFocused)
                     .onKeyPress(.return, phases: .down) { press in
                         if press.modifiers.contains(.command) {
@@ -256,7 +234,6 @@ struct ShellCommandBar: View {
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, Metrics.horizontalInset + 4)
-                        .padding(.vertical, Metrics.verticalInset + 1)
                         .allowsHitTesting(false)
                 }
             }
@@ -269,7 +246,6 @@ struct ShellCommandBar: View {
             Button("Send", action: sendCommand)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!canSend)
-                .padding(.top, 2)
                 .appHelp("Send commands to shell (⌘Return). Use Return for a new line.")
         }
         .padding(.horizontal, 12)
@@ -526,6 +502,7 @@ struct SettingsView: View {
 
 struct MainWindowView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.openWindow) private var openWindow
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -550,6 +527,11 @@ struct MainWindowView: View {
         }
         .onChange(of: appState.settings.showSidebar) { _, showSidebar in
             columnVisibility = showSidebar ? .all : .detailOnly
+        }
+        .onChange(of: appState.openUserGuide) { _, open in
+            guard open else { return }
+            openWindow(id: "userGuide")
+            appState.openUserGuide = false
         }
         .toolbar {
             ToolbarItemGroup {

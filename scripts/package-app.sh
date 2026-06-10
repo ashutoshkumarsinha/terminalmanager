@@ -30,6 +30,7 @@ cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
 
 # Ship example config inside the bundle for reference.
 cp "$ROOT/config.toml.example" "$CONTENTS/Resources/config.toml.example"
+cp "$ROOT/docs/USER_GUIDE.md" "$CONTENTS/Resources/USER_GUIDE.md"
 
 ICON_SRC="$ROOT/terminal.png"
 if [[ -f "$ICON_SRC" ]]; then

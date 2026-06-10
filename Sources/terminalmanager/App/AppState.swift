@@ -11,6 +11,9 @@ final class AppState: ObservableObject {
     @Published var errorMessage: String?
     @Published var offersAutomationSettings = false
     @Published var focusCommandBar = false
+    @Published var sessionTreeSelectionID: UUID?
+    @Published var pendingSessionTreeAction: SessionTreeAction?
+    @Published var openUserGuide = false
 
     let configStore: ConfigStore
     var broadcastManager: BroadcastManager
@@ -22,6 +25,12 @@ final class AppState: ObservableObject {
         self.configStore = configStore ?? ConfigStore()
         self.broadcastManager = broadcastManager ?? BroadcastManager()
         self.configStore.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        self.broadcastManager.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -55,6 +64,42 @@ final class AppState: ObservableObject {
     func isStripTabSelected(_ id: UUID) -> Bool {
         guard let selectedTabID else { return false }
         return stripTabID(for: selectedTabID) == id
+    }
+
+    var selectedSessionTreeFolder: SessionFolder? {
+        guard let sessionTreeSelectionID,
+              let item = configStore.item(withID: sessionTreeSelectionID),
+              case .folder(let folder) = item else {
+            return nil
+        }
+        return folder
+    }
+
+    var canCreateGroupFromOpenTabs: Bool {
+        !tabs.isEmpty
+    }
+
+    func requestSessionTreeAction(_ action: SessionTreeAction) {
+        pendingSessionTreeAction = action
+    }
+
+    func consumeSessionTreeAction() {
+        pendingSessionTreeAction = nil
+    }
+
+    func folderIDForNewSession() -> UUID? {
+        guard let sessionTreeSelectionID,
+              let item = configStore.item(withID: sessionTreeSelectionID) else {
+            return nil
+        }
+        switch item {
+        case .folder(let folder):
+            return folder.id
+        case .session:
+            return ConfigStore.parentFolderID(of: sessionTreeSelectionID, in: configStore.sessionTree)
+        case .group:
+            return nil
+        }
     }
 
     func bootstrap() {

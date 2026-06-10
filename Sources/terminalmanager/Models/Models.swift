@@ -166,6 +166,14 @@ struct SessionProfile: Identifiable, Codable, Hashable {
     }
 }
 
+enum SessionTreeAction: Equatable {
+    case createFolder
+    case renameFolder
+    case deleteFolder
+    case addNewSession
+    case createGroupFromOpenTabs
+}
+
 enum SessionTreeItem: Identifiable, Codable, Hashable {
     case folder(SessionFolder)
     case session(SessionProfile)

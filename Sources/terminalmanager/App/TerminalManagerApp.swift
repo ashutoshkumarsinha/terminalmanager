@@ -53,7 +53,35 @@ struct TerminalManagerApp: App {
                 .keyboardShortcut("l", modifiers: [.command, .shift])
             }
 
-            CommandMenu("View") {
+            CommandGroup(after: .help) {
+                Button("User Guide") {
+                    appState.openUserGuide = true
+                }
+            }
+
+            CommandGroup(after: .pasteboard) {
+                Button("New Folder") {
+                    appState.requestSessionTreeAction(.createFolder)
+                }
+                Button("Rename Folder…") {
+                    appState.requestSessionTreeAction(.renameFolder)
+                }
+                .disabled(appState.selectedSessionTreeFolder == nil)
+                Button("Delete Folder") {
+                    appState.requestSessionTreeAction(.deleteFolder)
+                }
+                .disabled(appState.selectedSessionTreeFolder == nil)
+                Divider()
+                Button("New Session…") {
+                    appState.requestSessionTreeAction(.addNewSession)
+                }
+                Button("Create Group from Open Tabs…") {
+                    appState.requestSessionTreeAction(.createGroupFromOpenTabs)
+                }
+                .disabled(!appState.canCreateGroupFromOpenTabs)
+            }
+
+            CommandGroup(replacing: .sidebar) {
                 Toggle("Show Session Sidebar", isOn: Binding(
                     get: { appState.settings.showSidebar },
                     set: { newValue in
@@ -63,7 +91,9 @@ struct TerminalManagerApp: App {
                     }
                 ))
                 .appHelp("Show or hide the session list sidebar", showTooltips: appState.settings.showTooltips)
+            }
 
+            CommandGroup(after: .sidebar) {
                 Toggle("Show Command Bar", isOn: Binding(
                     get: { appState.settings.showCommandBar },
                     set: { newValue in
@@ -91,6 +121,11 @@ struct TerminalManagerApp: App {
                 .environmentObject(appState)
                 .environment(\.showTooltips, appState.settings.showTooltips)
         }
+
+        Window("User Guide", id: "userGuide") {
+            UserGuideView()
+        }
+        .defaultSize(width: 720, height: 640)
 
         WindowGroup("Detached Session", id: "detached", for: UUID.self) { $tabID in
             if let tabID {

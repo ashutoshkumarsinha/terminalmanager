@@ -23,10 +23,12 @@ final class BroadcastManager: ObservableObject {
 
     func register(tabID: UUID, handler: @escaping (String) -> Void) {
         sendHandlers[tabID] = handler
+        objectWillChange.send()
     }
 
     func unregister(tabID: UUID) {
         sendHandlers.removeValue(forKey: tabID)
+        objectWillChange.send()
     }
 
     func canSend(to tabIDs: [UUID]) -> Bool {
