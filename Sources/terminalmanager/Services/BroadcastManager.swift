@@ -30,18 +30,27 @@ final class BroadcastManager: ObservableObject {
     }
 
     func canSend(to tabIDs: [UUID]) -> Bool {
-        !resolvedTabIDs(from: tabIDs).isEmpty && !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !resolvedTabIDs(from: tabIDs).isEmpty && Self.normalizedPayload(from: commandText) != nil
     }
 
     func send(to tabIDs: [UUID]) {
-        let command = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty else { return }
+        guard let payload = Self.normalizedPayload(from: commandText) else { return }
 
-        let payload = command.hasSuffix("\n") ? command : command + "\n"
         for tabID in resolvedTabIDs(from: tabIDs) {
             sendHandlers[tabID]?(payload)
         }
         commandText = ""
+    }
+
+    /// Turns command-bar text into terminal input, preserving one line per command.
+    static func normalizedPayload(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let lines = trimmed.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+        guard !lines.isEmpty else { return nil }
+
+        return lines.map { String($0) + "\n" }.joined()
     }
 
     func send(using tabIDs: [UUID], selectedTabID: UUID?) {

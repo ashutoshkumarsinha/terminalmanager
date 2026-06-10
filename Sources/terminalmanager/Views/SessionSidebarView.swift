@@ -58,7 +58,7 @@ struct SessionSidebarView: View {
                     } label: {
                         Label("Connect", systemImage: "play.fill")
                     }
-                    .help("Open selected session in a new tab")
+                    .appHelp("Open selected session in a new tab")
                 }
 
                 if let group = selectedGroup {
@@ -67,7 +67,7 @@ struct SessionSidebarView: View {
                     } label: {
                         Label("Open Group", systemImage: "play.rectangle.on.rectangle")
                     }
-                    .help("Open all sessions in this group with saved layout")
+                    .appHelp("Open all sessions in this group with saved layout")
                 }
 
                 if !appState.tabs.isEmpty {
@@ -76,7 +76,7 @@ struct SessionSidebarView: View {
                     } label: {
                         Label("Save as Group", systemImage: "rectangle.3.group.badge.plus")
                     }
-                    .help("Save open tabs and their split layout as a new group")
+                    .appHelp("Save open tabs and their split layout as a new group")
                 }
 
                 Button {
@@ -85,7 +85,7 @@ struct SessionSidebarView: View {
                     Label("Edit", systemImage: "pencil")
                 }
                 .disabled(selectedItemID == nil)
-                .help("Edit selected session, folder, or group")
+                .appHelp("Edit selected session, folder, or group")
 
                 if selectedSession != nil {
                     Button {
@@ -93,7 +93,7 @@ struct SessionSidebarView: View {
                     } label: {
                         Label("Duplicate", systemImage: "plus.square.on.square")
                     }
-                    .help("Duplicate the selected session in the sidebar")
+                    .appHelp("Duplicate the selected session in the sidebar")
                 }
 
                 if selectedGroup != nil {
@@ -102,7 +102,7 @@ struct SessionSidebarView: View {
                     } label: {
                         Label("Duplicate Group", systemImage: "plus.square.on.square")
                     }
-                    .help("Duplicate the selected group in the sidebar")
+                    .appHelp("Duplicate the selected group in the sidebar")
                 }
             }
         }
@@ -446,7 +446,7 @@ private struct SessionTreeRowView: View {
                         Image(systemName: "arrow.up.arrow.down.circle")
                     }
                     .buttonStyle(.borderless)
-                    .help("Open SFTP in Ghostty")
+                    .appHelp("Open SFTP in Ghostty")
                 }
             }
             .tag(profile.id)

@@ -5,6 +5,24 @@ enum AppInfo {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static weak var shared: AppDelegate?
+
+    private var pendingOpenURLs: [String] = []
+
+    override init() {
+        super.init()
+        AppDelegate.shared = self
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        pendingOpenURLs.append(contentsOf: urls.map(\.absoluteString))
+    }
+
+    func dequeuePendingOpenURLs() -> [String] {
+        let urls = pendingOpenURLs
+        pendingOpenURLs.removeAll()
+        return urls
+    }
     func applicationWillFinishLaunching(_ notification: Notification) {
         if SingleInstanceManager.shouldExitAsDuplicate() {
             exit(0)

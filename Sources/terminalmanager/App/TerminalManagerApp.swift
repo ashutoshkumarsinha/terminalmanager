@@ -10,9 +10,14 @@ struct TerminalManagerApp: App {
         WindowGroup(AppInfo.displayName) {
             MainWindowView()
                 .environmentObject(appState)
+                .environment(\.showTooltips, appState.settings.showTooltips)
                 .onAppear {
                     appState.bootstrap()
+                    appState.consumePendingConnectionRequests()
                     NSApp.activate(ignoringOtherApps: true)
+                }
+                .onOpenURL { url in
+                    appState.openConnectionString(url.absoluteString)
                 }
         }
         .defaultSize(width: 1280, height: 800)
@@ -57,9 +62,9 @@ struct TerminalManagerApp: App {
                         appState.settings = settings
                     }
                 ))
-                .help("Show or hide the session list sidebar")
+                .appHelp("Show or hide the session list sidebar", showTooltips: appState.settings.showTooltips)
 
-                Toggle("Show Command Toolbar", isOn: Binding(
+                Toggle("Show Command Bar", isOn: Binding(
                     get: { appState.settings.showCommandBar },
                     set: { newValue in
                         var settings = appState.settings
@@ -67,20 +72,31 @@ struct TerminalManagerApp: App {
                         appState.settings = settings
                     }
                 ))
-                .help("Show or hide the send-command bar above the tab strip")
-                .disabled(!appState.settings.broadcastEnabled)
+                .appHelp("Show or hide the command bar above the tab strip", showTooltips: appState.settings.showTooltips)
+
+                Toggle("Show Tooltips", isOn: Binding(
+                    get: { appState.settings.showTooltips },
+                    set: { newValue in
+                        var settings = appState.settings
+                        settings.showTooltips = newValue
+                        appState.settings = settings
+                    }
+                ))
+                .appHelp("Show or hide hover help text on buttons and controls", showTooltips: appState.settings.showTooltips)
             }
         }
 
         Settings {
             SettingsView()
                 .environmentObject(appState)
+                .environment(\.showTooltips, appState.settings.showTooltips)
         }
 
         WindowGroup("Detached Session", id: "detached", for: UUID.self) { $tabID in
             if let tabID {
                 DetachedWindowView(tabID: tabID)
                     .environmentObject(appState)
+                    .environment(\.showTooltips, appState.settings.showTooltips)
             }
         }
     }

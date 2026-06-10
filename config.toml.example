@@ -17,6 +17,7 @@ backend = "embedded"     # embedded | ghostty
 [ui]
 show_sidebar = true
 show_command_bar = true  # send-command toolbar above tab strip
+show_tooltips = true     # hover help text on buttons and controls
 broadcast_enabled = true # enables broadcast/command bar feature
 confirm_on_exit = false  # prompt before quitting
 

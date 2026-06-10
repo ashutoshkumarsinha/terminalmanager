@@ -9,6 +9,22 @@ enum ConnectionProtocol: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self).lowercased()
+        if raw == "ssh2" {
+            self = .ssh
+            return
+        }
+        guard let value = ConnectionProtocol(rawValue: raw) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown protocol: \(raw)"
+            )
+        }
+        self = value
+    }
+
     var displayName: String {
         switch self {
         case .ssh: "SSH"
@@ -273,6 +289,7 @@ struct AppSettings: Equatable {
     var keyboardShortcuts: [KeyboardShortcutBinding]
     var showSidebar: Bool
     var showCommandBar: Bool
+    var showTooltips: Bool
     var broadcastEnabled: Bool
     var confirmOnExit: Bool
     var logLevel: LogLevel
@@ -295,6 +312,7 @@ struct AppSettings: Equatable {
         ],
         showSidebar: true,
         showCommandBar: true,
+        showTooltips: true,
         broadcastEnabled: true,
         confirmOnExit: false,
         logLevel: .info

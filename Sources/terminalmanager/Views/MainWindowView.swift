@@ -67,7 +67,7 @@ struct TabStripView: View {
                         .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.borderless)
-                .help("New Tab")
+                .appHelp("New Tab")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -126,7 +126,7 @@ private struct TabChipView: View {
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
-            .help("Select \(tab.title). Double-click to rename.")
+            .appHelp("Select \(tab.title). Double-click to rename.")
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded { _ in onRename() }
             )
@@ -137,7 +137,7 @@ private struct TabChipView: View {
             }
             .buttonStyle(.borderless)
             .opacity(isSelected ? 1 : 0.5)
-            .help("Close Tab")
+            .appHelp("Close Tab")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
@@ -169,11 +169,40 @@ struct ShellCommandBar: View {
     @EnvironmentObject private var appState: AppState
     @FocusState private var isFocused: Bool
 
+    private enum Metrics {
+        static let lineHeight: CGFloat = 17
+        static let verticalInset: CGFloat = 8
+        static let horizontalInset: CGFloat = 6
+        static let maxVisibleLines = 5
+
+        static func height(forLineCount lineCount: Int) -> CGFloat {
+            let visibleLines = min(max(lineCount, 1), maxVisibleLines)
+            return CGFloat(visibleLines) * lineHeight + verticalInset * 2
+        }
+    }
+
     private var commandBinding: Binding<String> {
         Binding(
             get: { appState.broadcastManager.commandText },
             set: { appState.broadcastManager.commandText = $0 }
         )
+    }
+
+    private var commandText: String {
+        appState.broadcastManager.commandText
+    }
+
+    private var lineCount: Int {
+        if commandText.isEmpty { return 1 }
+        return commandText.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
+    }
+
+    private var editorHeight: CGFloat {
+        Metrics.height(forLineCount: lineCount)
+    }
+
+    private var showsVerticalScrollbar: Bool {
+        lineCount > Metrics.maxVisibleLines
     }
 
     private var openTabIDs: [UUID] {
@@ -194,36 +223,62 @@ struct ShellCommandBar: View {
     }
 
     var body: some View {
-        if appState.settings.showCommandBar && appState.settings.broadcastEnabled {
-            HStack(spacing: 10) {
-                Picker("Target", selection: $appState.broadcastManager.target) {
-                    ForEach(CommandTarget.allCases) { target in
-                        Text(target.label).tag(target)
-                    }
+        HStack(alignment: .top, spacing: 10) {
+            Picker("Target", selection: $appState.broadcastManager.target) {
+                ForEach(CommandTarget.allCases) { target in
+                    Text(target.label).tag(target)
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 240)
-                .help("Send the command to the selected tab or all open tabs")
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 240)
+            .padding(.top, 4)
+            .appHelp("Send the command to the selected tab or all open tabs")
 
-                TextField("Send command to shell…", text: commandBinding)
-                    .textFieldStyle(.roundedBorder)
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: commandBinding)
                     .font(.system(.body, design: .monospaced))
+                    .frame(height: editorHeight)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, Metrics.horizontalInset)
+                    .padding(.vertical, Metrics.verticalInset)
+                    .scrollIndicators(showsVerticalScrollbar ? .visible : .hidden, axes: .vertical)
                     .focused($isFocused)
-                    .onSubmit(sendCommand)
+                    .onKeyPress(.return, phases: .down) { press in
+                        if press.modifiers.contains(.command) {
+                            sendCommand()
+                            return .handled
+                        }
+                        return .ignored
+                    }
 
-                Button("Send", action: sendCommand)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!canSend)
-                    .help("Send command to shell (⌘Return)")
+                if commandText.isEmpty {
+                    Text("Send command to shell…")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, Metrics.horizontalInset + 4)
+                        .padding(.vertical, Metrics.verticalInset + 1)
+                        .allowsHitTesting(false)
+                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.bar)
-            .onChange(of: appState.focusCommandBar) { _, shouldFocus in
-                guard shouldFocus else { return }
-                isFocused = true
-                appState.focusCommandBar = false
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(nsColor: .textBackgroundColor)))
             }
+
+            Button("Send", action: sendCommand)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!canSend)
+                .padding(.top, 2)
+                .appHelp("Send commands to shell (⌘Return). Use Return for a new line.")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .onChange(of: appState.focusCommandBar) { _, shouldFocus in
+            guard shouldFocus else { return }
+            isFocused = true
+            appState.focusCommandBar = false
         }
     }
 
@@ -359,7 +414,7 @@ struct DetachedWindowView: View {
                         Button("Reattach") {
                             appState.attachTab(tabID)
                         }
-                        .help("Move this session back into the main window")
+                        .appHelp("Move this session back into the main window")
                     }
                 }
         }
@@ -382,14 +437,14 @@ struct SettingsView: View {
                         Text(mode.displayName).tag(mode)
                     }
                 }
-                .help("Embedded runs terminals inside this app; Ghostty opens external windows")
+                .appHelp("Embedded runs terminals inside this app; Ghostty opens external windows")
                 TextField("Ghostty.app Path", text: $ghosttyPath)
-                    .help("Path to Ghostty.app for external sessions and SFTP.")
+                    .appHelp("Path to Ghostty.app for external sessions and SFTP.")
             }
 
             Section("Interface") {
                 Toggle("Show Session Sidebar", isOn: $showSidebar)
-                    .help("Show or hide the session list in the main window")
+                    .appHelp("Show or hide the session list in the main window")
             }
 
             Section("Configuration Files") {
@@ -399,7 +454,7 @@ struct SettingsView: View {
                         .textSelection(.enabled)
                 }
                 TextField("Sessions JSON file", text: $sessionsFile)
-                    .help("Relative to the config directory, or an absolute path.")
+                    .appHelp("Relative to the config directory, or an absolute path.")
                 LabeledContent("Resolved sessions path") {
                     Text(FileLocations.sessionsURL(for: sessionsFile).path)
                         .font(.system(.caption, design: .monospaced))
@@ -418,14 +473,14 @@ struct SettingsView: View {
                         Text(level.label.capitalized).tag(level)
                     }
                 }
-                .help("Control how much detail is written to the log file")
+                .appHelp("Control how much detail is written to the log file")
             }
 
             Section("Sessions") {
                 Button("Export Sessions JSON…") { exportSessions() }
-                    .help("Save all sessions and folders to a JSON file")
+                    .appHelp("Save all sessions and folders to a JSON file")
                 Button("Import Sessions JSON…") { importSessions() }
-                    .help("Replace sessions from a JSON file")
+                    .appHelp("Replace sessions from a JSON file")
             }
 
         }
@@ -479,8 +534,10 @@ struct MainWindowView: View {
                 .frame(minWidth: 220)
         } detail: {
             VStack(spacing: 0) {
-                ShellCommandBar()
-                Divider()
+                if appState.settings.showCommandBar {
+                    ShellCommandBar()
+                    Divider()
+                }
                 TabStripView()
                 Divider()
                 SplitPaneView()
@@ -501,21 +558,21 @@ struct MainWindowView: View {
                 } label: {
                     Label("Split Horizontal", systemImage: "rectangle.split.1x2")
                 }
-                .help("Split the selected tab into top and bottom panes")
+                .appHelp("Split the selected tab into top and bottom panes")
 
                 Button {
                     appState.splitSelectedTab(orientation: .vertical)
                 } label: {
                     Label("Split Vertical", systemImage: "rectangle.split.2x1")
                 }
-                .help("Split the selected tab into left and right panes")
+                .appHelp("Split the selected tab into left and right panes")
 
                 Button {
                     appState.duplicateSelectedTab()
                 } label: {
                     Label("Duplicate Tab", systemImage: "plus.square.on.square")
                 }
-                .help("Open a copy of the selected tab (⌘D)")
+                .appHelp("Open a copy of the selected tab (⌘D)")
             }
         }
         .alert("Error", isPresented: Binding(

@@ -34,5 +34,19 @@
 	<string>Terminal Manager controls Ghostty to open SSH, SFTP, and other external terminal sessions.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Developed by AKS</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>SSH Connection</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ssh</string>
+				<string>ssh2</string>
+				<string>telnet</string>
+				<string>rlogin</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

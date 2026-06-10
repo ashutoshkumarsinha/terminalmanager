@@ -62,11 +62,14 @@ struct SessionEditorView: View {
                 if profile.protocolType == .local {
                     Section("Local Shell") {
                         TextField("Initial Directory", text: $initialDirectoryText, prompt: Text("~/"))
-                            .help("Working directory when the shell starts, e.g. ~/projects")
+                            .appHelp("Working directory when the shell starts, e.g. ~/projects")
                     }
                 } else {
                     Section("Connection") {
-                        TextField("Host or IP", text: $profile.host)
+                        TextField("Host, IP, or URI", text: $profile.host, prompt: Text("host.example.com or ssh2://user@host:22"))
+                            .onChange(of: profile.host) { _, newValue in
+                                applyConnectionURIIfPresent(in: newValue)
+                            }
                         TextField("Port", text: $portText)
                         TextField("Username", text: $profile.username)
                     }
@@ -90,7 +93,7 @@ struct SessionEditorView: View {
                                 HStack {
                                     TextField("Private key path", text: $sshKeyPathText, prompt: Text("~/.ssh/id_ed25519"))
                                     Button("Browse…") { browseForSSHKey() }
-                                        .help("Choose an SSH private key file")
+                                        .appHelp("Choose an SSH private key file")
                                 }
                             }
                         }
@@ -100,7 +103,7 @@ struct SessionEditorView: View {
                 Section("Options") {
                     if profile.protocolType == .ssh {
                         Toggle("Enable SFTP", isOn: $profile.sftpEnabled)
-                            .help("Show an SFTP shortcut for this session in the sidebar")
+                            .appHelp("Show an SFTP shortcut for this session in the sidebar")
                     }
                     TextField("Notes", text: $profile.notes, axis: .vertical)
                         .lineLimit(2...4)
@@ -117,7 +120,7 @@ struct SessionEditorView: View {
                     HStack {
                         TextField("Startup script file", text: $startupScriptPathText, prompt: Text("~/scripts/post-connect.sh"))
                         Button("Browse…") { browseForStartupScript() }
-                            .help("Choose a shell script to run after connecting")
+                            .appHelp("Choose a shell script to run after connecting")
                     }
                     Text("Optional script file whose commands are also run after connecting.")
                         .font(.caption)
@@ -129,12 +132,12 @@ struct SessionEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .help("Discard changes and close")
+                        .appHelp("Discard changes and close")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(!canSave)
-                        .help("Save session settings")
+                        .appHelp("Save session settings")
                 }
             }
         }
@@ -225,6 +228,15 @@ struct SessionEditorView: View {
             startupScriptPathText = url.path
         }
     }
+
+    private func applyConnectionURIIfPresent(in value: String) {
+        guard ConnectionURIParser.looksLikeURI(value),
+              let parsed = ConnectionURIParser.parse(value) else {
+            return
+        }
+        profile.apply(parsedURI: parsed)
+        portText = parsed.port.map(String.init) ?? (parsed.protocolType.defaultPort.map(String.init) ?? "")
+    }
 }
 
 struct FolderNameEditorView: View {
@@ -276,12 +288,12 @@ struct FolderNameEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .help("Discard changes and close")
+                        .appHelp("Discard changes and close")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(trimmedName.isEmpty || nameIsDuplicate)
-                        .help("Save folder name")
+                        .appHelp("Save folder name")
                 }
             }
         }

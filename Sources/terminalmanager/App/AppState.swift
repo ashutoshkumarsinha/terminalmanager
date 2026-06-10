@@ -52,9 +52,9 @@ final class AppState: ObservableObject {
         return splitLayoutAnchor(containing: tabID)
     }
 
-    func isStripTabSelected(_ stripTabID: UUID) -> Bool {
+    func isStripTabSelected(_ id: UUID) -> Bool {
         guard let selectedTabID else { return false }
-        return stripTabID(for: selectedTabID) == stripTabID
+        return stripTabID(for: selectedTabID) == id
     }
 
     func bootstrap() {
@@ -69,6 +69,25 @@ final class AppState: ObservableObject {
     @discardableResult
     func openTab(from profile: SessionProfile, backend: TerminalBackend? = nil) -> UUID {
         appendTab(from: profile, backend: backend, select: true)
+    }
+
+    @discardableResult
+    func openConnectionString(_ connectionString: String) -> UUID? {
+        guard let profile = SessionProfile.quickConnect(from: connectionString) else {
+            AppLogger.shared.warning("Could not parse connection URI: \(connectionString)")
+            return nil
+        }
+        AppLogger.shared.info("Opening connection from URI (\(profile.protocolType.rawValue)://\(profile.host))")
+        return openTab(from: profile)
+    }
+
+    func consumePendingConnectionRequests() {
+        for url in AppDelegate.shared?.dequeuePendingOpenURLs() ?? [] {
+            openConnectionString(url)
+        }
+        for arg in CommandLine.arguments.dropFirst() where ConnectionURIParser.looksLikeURI(arg) {
+            openConnectionString(arg)
+        }
     }
 
     func splitLayout(containing tabID: UUID) -> SplitLayoutNode? {
@@ -228,13 +247,26 @@ final class AppState: ObservableObject {
     }
 
     func detachTab(_ tabID: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
-        removeTabFromSplitLayouts(tabID)
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }),
+              !tabs[index].isSplitPane else { return }
+
+        if let layout = splitLayouts[tabID] {
+            let paneIDs = layout.tabIDsInLayout().subtracting([tabID])
+            splitLayouts.removeValue(forKey: tabID)
+            for paneID in paneIDs {
+                tabs.removeAll { $0.id == paneID }
+                broadcastManager.unregister(tabID: paneID)
+                terminalStore.remove(tabID: paneID)
+            }
+        } else {
+            removeTabFromSplitLayouts(tabID)
+        }
+
         var tab = tabs.remove(at: index)
         tab.isDetached = true
         detachedTabs.append(tab)
-        if selectedTabID == tabID {
-            selectedTabID = tabs.last?.id
+        if let selectedTabID, stripTabID(for: selectedTabID) == tabID {
+            self.selectedTabID = stripTabs.last?.id
         }
     }
 

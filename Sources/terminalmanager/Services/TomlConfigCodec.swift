@@ -44,12 +44,14 @@ enum TomlConfigCodec {
         struct UITable: Codable {
             var showSidebar: Bool
             var showCommandBar: Bool?
+            var showTooltips: Bool?
             var broadcastEnabled: Bool
             var confirmOnExit: Bool?
 
             enum CodingKeys: String, CodingKey {
                 case showSidebar = "show_sidebar"
                 case showCommandBar = "show_command_bar"
+                case showTooltips = "show_tooltips"
                 case broadcastEnabled = "broadcast_enabled"
                 case confirmOnExit = "confirm_on_exit"
             }
@@ -101,6 +103,7 @@ enum TomlConfigCodec {
             },
             showSidebar: root.ui.showSidebar,
             showCommandBar: root.ui.showCommandBar ?? true,
+            showTooltips: root.ui.showTooltips ?? true,
             broadcastEnabled: root.ui.broadcastEnabled,
             confirmOnExit: root.ui.confirmOnExit ?? false,
             logLevel: LogLevel(rawValue: root.logging?.level ?? "info") ?? .info
@@ -118,6 +121,7 @@ enum TomlConfigCodec {
             ui: .init(
                 showSidebar: settings.showSidebar,
                 showCommandBar: settings.showCommandBar,
+                showTooltips: settings.showTooltips,
                 broadcastEnabled: settings.broadcastEnabled,
                 confirmOnExit: settings.confirmOnExit
             ),
