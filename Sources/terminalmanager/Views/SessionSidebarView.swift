@@ -298,9 +298,20 @@ struct SessionSidebarView: View {
     }
 
     private func createSession(in folderID: UUID? = nil) {
+        if let folderID {
+            expandFolderPath(to: folderID)
+        }
         let profile = SessionProfile(name: "New Session", host: "example.com", username: "user")
         let saved = appState.configStore.addSession(profile, to: folderID)
         editingSession = saved
+    }
+
+    private func expandFolderPath(to folderID: UUID) {
+        var current: UUID? = folderID
+        while let id = current {
+            expandedFolderIDs.insert(id)
+            current = ConfigStore.parentFolderID(of: id, in: appState.configStore.sessionTree)
+        }
     }
 
     private func duplicateSelectedSession() {
