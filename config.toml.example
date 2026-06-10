@@ -10,10 +10,6 @@ single_instance = false  # true = one app instance per config directory
 start_maximized = false  # open window zoomed on launch
 restore_position = true  # persist frame/zoom in window-state.json
 
-[terminal]
-app_path = "/Applications/Ghostty.app"
-backend = "embedded"     # embedded | ghostty
-
 [ui]
 show_sidebar = true
 show_command_bar = true  # send-command toolbar above tab strip

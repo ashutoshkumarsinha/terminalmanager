@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-struct ConnectionCommand {
+struct ConnectionCommand: Hashable {
     let executable: String
     let arguments: [String]
     let displayCommand: String
@@ -82,41 +82,27 @@ enum ConnectionLauncher {
         }
     }
 
-    /// Shell command string for external terminals (Ghostty), including SSH auth wrappers.
-    static func externalShellCommand(for profile: SessionProfile) -> String? {
-        guard profile.protocolType != .local else { return nil }
-
-        let command = command(for: profile)
-        guard profile.protocolType == .ssh,
-              profile.sshAuthMethod == .password,
-              !profile.password.isEmpty else {
-            return command.displayCommand
-        }
-        _ = SSHAuthHelper.writeAskpassScript(password: profile.password, profileID: profile.id)
-
-        let escapedAskpass = SSHAuthHelper.askpassScriptURL(for: profile.id).path
-            .replacingOccurrences(of: "'", with: "'\\''")
-        let escapedCommand = command.displayCommand
-            .replacingOccurrences(of: "'", with: "'\\''")
-        return "/bin/bash -lc 'export SSH_ASKPASS=\"\(escapedAskpass)\" SSH_ASKPASS_REQUIRE=force DISPLAY=:0; exec \(escapedCommand)'"
-    }
-
     static func sftpCommand(for profile: SessionProfile) -> ConnectionCommand? {
         guard profile.protocolType == .ssh else { return nil }
-        var args: [String] = []
+        var args: [String] = ["-o", "StrictHostKeyChecking=accept-new"]
         if let port = profile.port, port != 22 {
             args += ["-P", String(port)]
         }
         if profile.sshAuthMethod == .privateKey,
            let keyPath = SSHAuthHelper.expandedKeyPath(profile.sshKeyPath) {
-            args += ["-i", keyPath]
+            args += ["-i", keyPath, "-o", "IdentitiesOnly=yes"]
         }
         let target = profile.username.isEmpty ? profile.host : "\(profile.username)@\(profile.host)"
         args.append(target)
+        var environment: [String]?
+        if profile.sshAuthMethod == .password, !profile.password.isEmpty {
+            environment = SSHAuthHelper.askpassEnvironment(password: profile.password, profileID: profile.id)
+        }
         return ConnectionCommand(
             executable: "/usr/bin/sftp",
             arguments: args,
-            displayCommand: (["sftp"] + args).joined(separator: " ")
+            displayCommand: (["sftp"] + args).joined(separator: " "),
+            environment: environment
         )
     }
 

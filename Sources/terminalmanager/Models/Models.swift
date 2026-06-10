@@ -62,33 +62,6 @@ enum SSHAuthMethod: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum TerminalBackend: String, Codable, CaseIterable, Identifiable {
-    case embedded
-    case ghostty
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .embedded: "Embedded Terminal"
-        case .ghostty: "Ghostty"
-        }
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let raw = try container.decode(String.self)
-        switch raw {
-        case "ghostty", "terminalApp":
-            self = .ghostty
-        case "embedded":
-            self = .embedded
-        default:
-            self = .embedded
-        }
-    }
-}
-
 struct SessionProfile: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
@@ -291,8 +264,6 @@ struct AppSettings: Equatable {
     var singleInstance: Bool
     var startMaximized: Bool
     var restoreWindowPosition: Bool
-    var terminalAppPath: String
-    var terminalBackend: TerminalBackend
     var sessionsFile: String
     var keyboardShortcuts: [KeyboardShortcutBinding]
     var showSidebar: Bool
@@ -307,8 +278,6 @@ struct AppSettings: Equatable {
         singleInstance: false,
         startMaximized: false,
         restoreWindowPosition: true,
-        terminalAppPath: GhosttyBridge.defaultAppPath,
-        terminalBackend: .embedded,
         sessionsFile: "sessions.json",
         keyboardShortcuts: [
             KeyboardShortcutBinding(id: "newTab", key: "t"),
@@ -343,7 +312,7 @@ struct TerminalTab: Identifiable, Hashable {
     let id: UUID
     var title: String
     var profile: SessionProfile?
-    var backend: TerminalBackend
+    var overrideCommand: ConnectionCommand?
     var isDetached: Bool
     /// Split panes share a tab-strip entry with their anchor tab and are not shown as separate tabs.
     var isSplitPane: Bool
@@ -353,7 +322,7 @@ struct TerminalTab: Identifiable, Hashable {
         id: UUID = UUID(),
         title: String,
         profile: SessionProfile? = nil,
-        backend: TerminalBackend = .embedded,
+        overrideCommand: ConnectionCommand? = nil,
         isDetached: Bool = false,
         isSplitPane: Bool = false,
         initScript: String = ""
@@ -361,7 +330,7 @@ struct TerminalTab: Identifiable, Hashable {
         self.id = id
         self.title = title
         self.profile = profile
-        self.backend = backend
+        self.overrideCommand = overrideCommand
         self.isDetached = isDetached
         self.isSplitPane = isSplitPane
         self.initScript = initScript

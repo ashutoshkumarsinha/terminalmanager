@@ -486,7 +486,7 @@ private struct SessionTreeRowView: View {
                         Image(systemName: "arrow.up.arrow.down.circle")
                     }
                     .buttonStyle(.borderless)
-                    .appHelp("Open SFTP in Ghostty")
+                    .appHelp("Open SFTP in an embedded tab")
                 }
             }
             .tag(profile.id)

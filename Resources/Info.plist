@@ -30,8 +30,6 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>Terminal Manager controls Ghostty to open SSH, SFTP, and other external terminal sessions.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Developed by AKS</string>
 	<key>CFBundleURLTypes</key>

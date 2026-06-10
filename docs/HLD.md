@@ -36,7 +36,6 @@ flowchart TB
     subgraph External["External"]
         STerm[SwiftTerm PTY]
         Sys[ssh / telnet / nc / zsh]
-        GT[Ghostty.app]
         FS[(config.toml / sessions.json)]
     end
 
@@ -67,6 +66,7 @@ flowchart TB
 | `EmbeddedTerminalView` | NSViewRepresentable bridge to SwiftTerm |
 | `SessionEditorView` | Profile editor sheets |
 | `SettingsView` | In-app settings; writes `config.toml` |
+| `UserGuideView` | Help → User Guide; renders bundled `USER_GUIDE.md` as HTML |
 
 ### 2.2 Application State (`AppState`)
 
@@ -95,9 +95,10 @@ Key operations: open/close tab, per-tab split, open/save group, tab reorder, boo
 | `GroupLayoutMapper` | Convert `SplitLayoutNode` ↔ `GroupLayoutNode` |
 | `WindowStateManager` | Persist/restore window frame and zoom |
 | `SingleInstanceManager` | File lock + distributed notification for single instance |
-| `GhosttyBridge` | AppleScript launch for external terminal / SFTP |
 | `SSHAuthHelper` | Askpass scripts for password auth |
-| `AppLogger` | File + os_log logging |
+| `AppLogger` | File logging for app events |
+| `TerminalIOLogger` | Separate log for terminal input/output |
+| `UserGuideLoader` | Load bundled or source `USER_GUIDE.md` for Help |
 
 ---
 
@@ -132,7 +133,7 @@ classDiagram
         UUID id
         String title
         SessionProfile profile
-        TerminalBackend backend
+        ConnectionCommand overrideCommand
     }
 
     class SplitLayoutNode {
@@ -280,7 +281,6 @@ sequenceDiagram
 
 - Passwords stored in `sessions.json` (plain text); file permissions rely on OS user home directory
 - SSH askpass scripts written to config directory with restrictive permissions
-- Ghostty integration requires macOS Automation (AppleScript) permission
 - No network listeners; outbound connections only via user-initiated sessions
 
 ---

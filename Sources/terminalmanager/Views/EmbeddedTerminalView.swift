@@ -5,6 +5,7 @@ import SwiftTerm
 struct EmbeddedTerminalView: NSViewRepresentable {
     let tabID: UUID
     let profile: SessionProfile
+    let overrideCommand: ConnectionCommand?
     let isActive: Bool
     let terminalStore: TerminalSessionStore
     let onSendInput: ((@escaping (String) -> Void) -> Void)?
@@ -16,7 +17,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> TerminalContainerView {
         let container = TerminalContainerView()
         container.coordinator = context.coordinator
-        context.coordinator.attach(container: container, profile: profile)
+        context.coordinator.attach(container: container, profile: profile, overrideCommand: overrideCommand)
         context.coordinator.isActive = isActive
         context.coordinator.onSendInput = onSendInput
         context.coordinator.reattachIfNeeded()
@@ -29,6 +30,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         let profileChanged = coordinator.profile?.id != profile.id
 
         coordinator.profile = profile
+        coordinator.overrideCommand = overrideCommand
         coordinator.isActive = isActive
         coordinator.onSendInput = onSendInput
         terminalStore.updateSessionLabel(tabID: tabID, name: profile.name)
@@ -50,6 +52,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         let terminalStore: TerminalSessionStore
         weak var container: TerminalContainerView?
         var profile: SessionProfile?
+        var overrideCommand: ConnectionCommand?
         var isActive = false
         var onSendInput: ((@escaping (String) -> Void) -> Void)?
         private var didRegisterHandler = false
@@ -60,9 +63,10 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             self.terminalStore = terminalStore
         }
 
-        func attach(container: TerminalContainerView, profile: SessionProfile) {
+        func attach(container: TerminalContainerView, profile: SessionProfile, overrideCommand: ConnectionCommand?) {
             self.container = container
             self.profile = profile
+            self.overrideCommand = overrideCommand
             terminalStore.updateSessionLabel(tabID: tabID, name: profile.name)
         }
 
@@ -97,7 +101,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             guard let terminal = container.terminal, !terminalStore.isRunning(tabID: tabID) else { return }
 
             terminal.layoutSubtreeIfNeeded()
-            let command = ConnectionLauncher.command(for: profile)
+            let command = overrideCommand ?? ConnectionLauncher.command(for: profile)
             terminal.startProcess(
                 executable: command.executable,
                 args: command.arguments,
@@ -209,12 +213,11 @@ struct TerminalHostView: View {
 
     var body: some View {
         Group {
-            if tab.backend == .ghostty {
-                ExternalTerminalPlaceholderView(tab: tab)
-            } else if let profile = tab.profile {
+            if let profile = tab.profile {
                 EmbeddedTerminalView(
                     tabID: tab.id,
                     profile: profile,
+                    overrideCommand: tab.overrideCommand,
                     isActive: isActive,
                     terminalStore: appState.terminalStore,
                     onSendInput: { handler in
@@ -227,33 +230,5 @@ struct TerminalHostView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
-    }
-}
-
-struct ExternalTerminalPlaceholderView: View {
-    let tab: TerminalTab
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "terminal")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("Running in Ghostty")
-                .font(.title2)
-            if let profile = tab.profile {
-                Text(profile.name)
-                    .foregroundStyle(.secondary)
-                Text(ConnectionLauncher.command(for: profile).displayCommand)
-                    .font(.system(.body, design: .monospaced))
-                    .padding(8)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-            }
-            Text("Switch to embedded mode in Settings to render sessions inside Terminal Manager.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

@@ -20,7 +20,7 @@ Terminal Manager is a native macOS application that consolidates multiple termin
 ### 1.2 Non-Goals (v1)
 
 - Windows/Linux ports
-- Built-in SFTP file browser (SFTP launches external Ghostty)
+- Built-in SFTP file browser (SFTP opens an embedded `sftp` tab)
 - Session recording / playback
 - Multi-user or cloud sync
 
@@ -40,7 +40,7 @@ Terminal Manager is a native macOS application that consolidates multiple termin
 | SM-06 | Protocols: SSH, Telnet, Rlogin, Raw TCP, Local shell | ✅ |
 | SM-07 | SSH auth: agent, password, private key | ✅ |
 | SM-08 | Per-session init script after connect | ✅ |
-| SM-09 | Optional SFTP launch via Ghostty | ✅ |
+| SM-09 | Optional SFTP launch in embedded tab | ✅ |
 
 ### 2.2 Session Groups
 
@@ -84,12 +84,11 @@ Terminal Manager is a native macOS application that consolidates multiple termin
 | AB-04 | Portable config via `TERMINALMANAGER_CONFIG` | ✅ |
 | AB-05 | File logging with configurable level | ✅ |
 
-### 2.6 Terminal Backends
+### 2.6 Terminal
 
 | ID | Requirement | Status |
 |----|-------------|--------|
-| TB-01 | Embedded terminal (SwiftTerm) — default | ✅ |
-| TB-02 | External Ghostty via AppleScript | ✅ |
+| TB-01 | Embedded terminal (SwiftTerm) for all sessions | ✅ |
 
 ---
 
@@ -114,8 +113,12 @@ Terminal Manager is a native macOS application that consolidates multiple termin
 | Menu | Key actions |
 |------|-------------|
 | File | New Tab (⌘T), Close Tab (⌘W) |
+| Edit | New Folder, Rename/Delete Folder, New Session, Create Group from Open Tabs |
 | Session | Duplicate, next/prev tab, split H/V, focus command bar |
-| View | Show sidebar, show command toolbar |
+| View | Show sidebar, show command bar, show tooltips |
+| Help | Terminal Manager Help (⌘?) — in-app User Guide |
+
+In-app help renders `docs/USER_GUIDE.md` from the app bundle.
 
 ---
 
@@ -129,7 +132,8 @@ Terminal Manager is a native macOS application that consolidates multiple termin
 | `sessions.json` | Session / folder / group tree |
 | `window-state.json` | Saved window frame and zoom (auto) |
 | `instance.lock` | Single-instance lock file (auto) |
-| `logs/*.log` | Daily log files |
+| `logs/terminalmanager-*.log` | App events and errors |
+| `logs/terminal-io-*.log` | Terminal input and shell output |
 
 Default directory: `~/.terminalmanager/`
 
@@ -146,13 +150,10 @@ single_instance = false
 start_maximized = false
 restore_position = true
 
-[terminal]
-app_path = "/Applications/Ghostty.app"
-backend = "embedded"   # embedded | ghostty
-
 [ui]
 show_sidebar = true
 show_command_bar = true
+show_tooltips = true
 broadcast_enabled = true
 confirm_on_exit = false
 

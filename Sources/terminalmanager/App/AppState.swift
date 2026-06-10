@@ -9,7 +9,6 @@ final class AppState: ObservableObject {
     @Published private(set) var splitLayouts: [UUID: SplitLayoutNode] = [:]
     @Published var detachedTabs: [TerminalTab] = []
     @Published var errorMessage: String?
-    @Published var offersAutomationSettings = false
     @Published var focusCommandBar = false
     @Published var sessionTreeSelectionID: UUID?
     @Published var pendingSessionTreeAction: SessionTreeAction?
@@ -109,8 +108,12 @@ final class AppState: ObservableObject {
     }
 
     @discardableResult
-    func openTab(from profile: SessionProfile, backend: TerminalBackend? = nil) -> UUID {
-        appendTab(from: profile, backend: backend, select: true)
+    func openTab(
+        from profile: SessionProfile,
+        title: String? = nil,
+        overrideCommand: ConnectionCommand? = nil
+    ) -> UUID {
+        appendTab(from: profile, title: title, overrideCommand: overrideCommand, select: true)
     }
 
     @discardableResult
@@ -173,22 +176,21 @@ final class AppState: ObservableObject {
     @discardableResult
     private func appendTab(
         from profile: SessionProfile,
-        backend: TerminalBackend? = nil,
+        title: String? = nil,
+        overrideCommand: ConnectionCommand? = nil,
         select: Bool = true
     ) -> UUID {
-        let resolvedBackend = backend ?? settings.terminalBackend
         let tab = TerminalTab(
-            title: profile.name,
+            title: title ?? profile.name,
             profile: profile,
-            backend: resolvedBackend,
+            overrideCommand: overrideCommand,
             initScript: profile.initScript
         )
         tabs.append(tab)
         if select {
             selectedTabID = tab.id
         }
-        connectExternalIfNeeded(tab: tab, profile: profile)
-        AppLogger.shared.info("Opened tab '\(profile.name)' (\(profile.protocolType.rawValue))")
+        AppLogger.shared.info("Opened tab '\(tab.title)' (\(profile.protocolType.rawValue))")
         return tab.id
     }
 
@@ -325,7 +327,7 @@ final class AppState: ObservableObject {
         let paneToSplitID = selected.id
         let stripAnchorID = stripTabID(for: paneToSplitID) ?? paneToSplitID
         let newProfile = SessionProfile(name: "Local", host: "", protocolType: .local)
-        let newPaneID = appendSplitPane(from: newProfile, backend: settings.terminalBackend)
+        let newPaneID = appendSplitPane(from: newProfile)
         let splitNode = SplitLayoutNode.split(
             orientation,
             .leaf(tabID: paneToSplitID),
@@ -347,20 +349,14 @@ final class AppState: ObservableObject {
     }
 
     @discardableResult
-    private func appendSplitPane(
-        from profile: SessionProfile,
-        backend: TerminalBackend? = nil
-    ) -> UUID {
-        let resolvedBackend = backend ?? settings.terminalBackend
+    private func appendSplitPane(from profile: SessionProfile) -> UUID {
         let tab = TerminalTab(
             title: profile.name,
             profile: profile,
-            backend: resolvedBackend,
             isSplitPane: true,
             initScript: profile.initScript
         )
         tabs.append(tab)
-        connectExternalIfNeeded(tab: tab, profile: profile)
         AppLogger.shared.info("Added split pane '\(profile.name)' (\(profile.protocolType.rawValue))")
         return tab.id
     }
@@ -398,29 +394,20 @@ final class AppState: ObservableObject {
     }
 
     private func report(_ error: Error) {
-        if let bridgeError = error as? GhosttyBridgeError {
-            offersAutomationSettings = bridgeError.offersAutomationSettings
-        } else {
-            offersAutomationSettings = false
-        }
         AppLogger.shared.error(error.localizedDescription)
         errorMessage = error.localizedDescription
     }
 
     func clearError() {
         errorMessage = nil
-        offersAutomationSettings = false
     }
 
     func launchSFTP(for profile: SessionProfile) {
-        do {
-            try GhosttyBridge.launchSFTP(
-                profile: profile,
-                ghosttyAppPath: settings.terminalAppPath
-            )
-        } catch {
-            report(error)
+        guard let command = ConnectionLauncher.sftpCommand(for: profile) else {
+            AppLogger.shared.warning("SFTP is only available for SSH sessions")
+            return
         }
+        openTab(from: profile, title: "\(profile.name) (SFTP)", overrideCommand: command)
     }
 
     @discardableResult
@@ -514,17 +501,5 @@ final class AppState: ObservableObject {
         let saved = configStore.saveGroup(name: name, members: members, layout: groupLayout)
         AppLogger.shared.info("Saved tab group '\(saved.name)' with \(saved.members.count) session(s)")
         return saved
-    }
-
-    private func connectExternalIfNeeded(tab: TerminalTab, profile: SessionProfile) {
-        guard tab.backend == .ghostty, let profile = tab.profile else { return }
-        do {
-            try GhosttyBridge.launch(
-                profile: profile,
-                ghosttyAppPath: settings.terminalAppPath
-            )
-        } catch {
-            report(error)
-        }
     }
 }

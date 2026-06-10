@@ -381,25 +381,12 @@ struct DetachedWindowView: View {
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
-    @State private var ghosttyPath: String = ""
-    @State private var backend: TerminalBackend = .embedded
     @State private var showSidebar: Bool = true
     @State private var sessionsFile: String = "sessions.json"
     @State private var logLevel: LogLevel = .info
 
     var body: some View {
         Form {
-            Section("External Terminal") {
-                Picker("Rendering Mode", selection: $backend) {
-                    ForEach(TerminalBackend.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .appHelp("Embedded runs terminals inside this app; Ghostty opens external windows")
-                TextField("Ghostty.app Path", text: $ghosttyPath)
-                    .appHelp("Path to Ghostty.app for external sessions and SFTP.")
-            }
-
             Section("Interface") {
                 Toggle("Show Session Sidebar", isOn: $showSidebar)
                     .appHelp("Show or hide the session list in the main window")
@@ -445,16 +432,12 @@ struct SettingsView: View {
         .padding()
         .frame(width: 520)
         .onAppear {
-            ghosttyPath = appState.settings.terminalAppPath
-            backend = appState.settings.terminalBackend
             showSidebar = appState.settings.showSidebar
             sessionsFile = appState.settings.sessionsFile
             logLevel = appState.settings.logLevel
         }
         .onDisappear {
             var settings = appState.settings
-            settings.terminalAppPath = ghosttyPath
-            settings.terminalBackend = backend
             settings.showSidebar = showSidebar
             settings.sessionsFile = sessionsFile
             settings.logLevel = logLevel
@@ -546,12 +529,6 @@ struct MainWindowView: View {
             get: { appState.errorMessage != nil },
             set: { if !$0 { appState.clearError() } }
         )) {
-            if appState.offersAutomationSettings {
-                Button("Open System Settings") {
-                    GhosttyBridge.openAutomationSettings()
-                    appState.clearError()
-                }
-            }
             Button("OK", role: .cancel) {
                 appState.clearError()
             }

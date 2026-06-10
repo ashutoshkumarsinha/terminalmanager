@@ -5,7 +5,7 @@ enum TomlConfigCodec {
     private struct TomlRoot: Codable {
         var app: AppTable
         var window: WindowTable?
-        var terminal: TerminalTable
+        var terminal: TerminalTable?
         var ui: UITable
         var sessions: SessionsTable
         var logging: LoggingTable?
@@ -32,8 +32,8 @@ enum TomlConfigCodec {
         }
 
         struct TerminalTable: Codable {
-            var appPath: String
-            var backend: String
+            var appPath: String?
+            var backend: String?
 
             enum CodingKeys: String, CodingKey {
                 case appPath = "app_path"
@@ -95,8 +95,6 @@ enum TomlConfigCodec {
             singleInstance: root.app.singleInstance ?? false,
             startMaximized: root.window?.startMaximized ?? false,
             restoreWindowPosition: root.window?.restorePosition ?? true,
-            terminalAppPath: root.terminal.appPath,
-            terminalBackend: TerminalBackend(rawValue: root.terminal.backend) ?? .embedded,
             sessionsFile: root.sessions.file,
             keyboardShortcuts: root.shortcuts.map {
                 KeyboardShortcutBinding(id: $0.id, key: $0.key, modifiers: $0.modifiers)
@@ -117,7 +115,7 @@ enum TomlConfigCodec {
                 startMaximized: settings.startMaximized,
                 restorePosition: settings.restoreWindowPosition
             ),
-            terminal: .init(appPath: settings.terminalAppPath, backend: settings.terminalBackend.rawValue),
+            terminal: nil,
             ui: .init(
                 showSidebar: settings.showSidebar,
                 showCommandBar: settings.showCommandBar,

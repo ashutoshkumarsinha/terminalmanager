@@ -11,7 +11,7 @@ Lightweight macOS tabbed terminal session manager written in Swift. Terminal Man
 - **Detached windows** — Tear off a tab and reattach later
 - **Command broadcast** — Send a command to selected or all embedded tabs
 - **Protocol support** — SSH, Telnet, Rlogin, Raw TCP, local shell
-- **SFTP** — Launch SFTP in Ghostty from saved SSH profiles
+- **SFTP** — Launch SFTP in an embedded tab from saved SSH profiles
 - **Portable config** — `config.toml` + `sessions.json`; `TERMINALMANAGER_CONFIG` env var
 - **Single instance** — Optional one-instance-per-config-directory mode
 
@@ -19,7 +19,7 @@ Lightweight macOS tabbed terminal session manager written in Swift. Terminal Man
 
 | Document | Description |
 |----------|-------------|
-| [User Guide](docs/USER_GUIDE.md) | Day-to-day usage: sessions, tabs, splits, groups |
+| [User Guide](docs/USER_GUIDE.md) | Day-to-day usage; also available in-app via **Help → Terminal Manager Help** (⌘?) |
 | [Functional Spec](docs/SPEC.md) | Requirements, config schemas, shortcuts |
 | [High-Level Design](docs/HLD.md) | Architecture, data models, component diagram |
 
@@ -129,6 +129,8 @@ bash scripts/run-app.sh
 | `config.toml` | App settings, UI, window, shortcuts |
 | `sessions.json` | Session profiles, folders, groups |
 | `window-state.json` | Saved window frame (automatic) |
+| `logs/terminalmanager-*.log` | App events and errors |
+| `logs/terminal-io-*.log` | Terminal commands and shell output |
 
 Default: `~/.terminalmanager/`
 
@@ -136,12 +138,7 @@ Copy `config.toml.example` as a starting point. Full schema: [docs/SPEC.md](docs
 
 ## Terminal Backends
 
-| Mode | Behavior |
-|------|----------|
-| **Embedded** (default) | In-window rendering via [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) |
-| **Ghostty** | External windows via AppleScript (Automation permission required) |
-
-Configure in Settings or `config.toml` → `[terminal]`.
+All sessions render in-window via [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm).
 
 ## License
 
