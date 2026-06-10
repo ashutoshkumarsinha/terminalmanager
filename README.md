@@ -35,10 +35,28 @@ Lightweight macOS tabbed terminal session manager written in Swift. Terminal Man
 
 ```bash
 cd terminalmanager
-bash scripts/run-app.sh
+make run
 ```
 
 This bootstraps `~/.terminalmanager/` (if needed), builds `Terminal Manager.app`, and opens it.
+
+### Makefile
+
+Run `make` or `make help` for all targets.
+
+| Target | Purpose |
+|--------|---------|
+| `make build` | Build debug binary |
+| `make build-release` | Build release binary |
+| `make package` | Assemble `Terminal Manager.app` (debug) |
+| `make package-release` | Assemble release app bundle |
+| `make run` | Bootstrap config, package, and open app |
+| `make bootstrap` | Create `~/.terminalmanager` from example config |
+| `make dmg` | Build release app and create `dist/Terminal Manager-<version>.dmg` |
+| `make test` | Run Swift tests |
+| `make clean` | Remove `.build`, app bundle, and `dist/` |
+
+Use `make run CONFIG=release` for a release build when developing.
 
 ### Scripts
 
@@ -46,21 +64,34 @@ This bootstraps `~/.terminalmanager/` (if needed), builds `Terminal Manager.app`
 |--------|---------|
 | `scripts/run-app.sh [debug\|release]` | Bootstrap config, package app, open |
 | `scripts/package-app.sh [debug\|release]` | Build and assemble `Terminal Manager.app` |
+| `scripts/create-dmg.sh` | Release build + distributable DMG in `dist/` |
 | `scripts/bootstrap-config.sh` | Create default config dir from `config.toml.example` |
 
 Manual build:
 
 ```bash
-swift build
-bash scripts/package-app.sh debug
+make build
+make package
 open "Terminal Manager.app"
 ```
 
-Release:
+Release app bundle:
 
 ```bash
-bash scripts/package-app.sh release
+make package-release
 ```
+
+### Distribution
+
+Build a compressed DMG for sharing:
+
+```bash
+make dmg
+```
+
+Output: `dist/Terminal Manager-1.0.0.dmg` (version from `Resources/Info.plist`). The disk image contains the app and an Applications folder shortcut for drag-and-drop install.
+
+The distributed build is not code-signed or notarized; recipients may need to allow the app in **System Settings → Privacy & Security** on first launch.
 
 With [devbox](https://www.jetify.com/devbox):
 
@@ -68,6 +99,7 @@ With [devbox](https://www.jetify.com/devbox):
 devbox shell
 devbox run run      # scripts/run-app.sh
 devbox run package  # release .app bundle
+# or: make dmg
 ```
 
 Portable config:

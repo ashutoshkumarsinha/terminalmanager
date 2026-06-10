@@ -6,14 +6,27 @@ Terminal Manager helps you run many terminal sessions in one window, organize sa
 
 ## 1. Getting Started
 
-### Install & run
+### Install from DMG
+
+If you received `Terminal Manager-<version>.dmg`:
+
+1. Open the disk image.
+2. Drag **Terminal Manager** into **Applications**.
+3. Eject the disk image.
+4. Launch from Applications. On first open, macOS may warn that the app is from an unidentified developer — use **System Settings → Privacy & Security → Open Anyway** if needed.
+
+The first run creates `~/.terminalmanager/` with default `config.toml` and an empty `sessions.json`.
+
+### Build from source
+
+Developers can run the app without installing a DMG:
 
 ```bash
 cd terminalmanager
-bash scripts/run-app.sh
+make run
 ```
 
-The first run creates `~/.terminalmanager/` with default `config.toml` and an empty `sessions.json`.
+Equivalent: `bash scripts/run-app.sh`. See [README](../README.md) for `make dmg`, release builds, and other targets.
 
 ### Main window layout
 
@@ -195,7 +208,7 @@ Copy the whole directory to a USB drive or sync folder:
 
 ```bash
 export TERMINALMANAGER_CONFIG=/path/to/my-config
-bash scripts/run-app.sh
+make run
 ```
 
 ### Useful `config.toml` options
@@ -252,7 +265,8 @@ Customize via `[[shortcuts]]` entries in `config.toml`.
 
 | Problem | Suggestion |
 |---------|------------|
-| App not in Dock | Use `bash scripts/run-app.sh`, not bare `swift run` |
+| App not in Dock | Use `make run` or `bash scripts/run-app.sh`, not bare `swift run` |
+| “App is damaged” or won’t open | Unsigned DMG build — allow in **Privacy & Security** or build from source |
 | Second launch does nothing | `single_instance = true` — existing window is focused |
 | Ghostty sessions fail | Grant Automation permission; check Ghostty path in Settings |
 | SSH password auth fails | Re-save session; check `~/.terminalmanager/askpass-*.sh` exists |

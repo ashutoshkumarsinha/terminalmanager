@@ -324,7 +324,27 @@ System binaries: `/usr/bin/ssh`, `telnet`, `nc`, user login shell.
 
 ---
 
-## 12. Related Documents
+## 12. Build & Packaging
+
+```
+swift build -c release
+        │
+        ▼
+scripts/package-app.sh release
+        │
+        ├── Terminal Manager.app  (Contents/MacOS, Info.plist, resources)
+        │
+        └── scripts/create-dmg.sh (optional)
+                    │
+                    ▼
+            dist/Terminal Manager-<version>.dmg
+```
+
+The Makefile wraps these steps (`make package-release`, `make dmg`). App bundle assembly copies the release binary, `Info.plist`, `config.toml.example`, and `docs/USER_GUIDE.md` into `Contents/Resources`.
+
+---
+
+## 13. Related Documents
 
 - [Functional Specification](SPEC.md)
 - [User Guide](USER_GUIDE.md)

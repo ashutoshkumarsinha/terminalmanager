@@ -261,11 +261,35 @@ Shortcuts are configurable in `config.toml` under `[[shortcuts]]`.
 
 ## 6. Build & Deploy
 
+### Makefile
+
+| Target | Purpose |
+|--------|---------|
+| `make build` | Debug Swift build |
+| `make build-release` | Release Swift build |
+| `make package` | Assemble `Terminal Manager.app` (debug) |
+| `make package-release` | Assemble release app bundle |
+| `make run` | Bootstrap config, package, open (`CONFIG=release` optional) |
+| `make bootstrap` | Seed config directory from `config.toml.example` |
+| `make dmg` | Release build + `dist/Terminal Manager-<version>.dmg` |
+| `make test` | Run Swift tests |
+| `make clean` | Remove `.build`, app bundle, and `dist/` |
+
+### Scripts
+
 | Script | Purpose |
 |--------|---------|
 | `scripts/bootstrap-config.sh` | Create `~/.terminalmanager` from example if missing |
 | `scripts/package-app.sh [debug\|release]` | Build binary and assemble `Terminal Manager.app` |
-| `scripts/run-app.sh [debug]` | Bootstrap config, package, and open app |
+| `scripts/create-dmg.sh` | Release build, stage app + Applications link, write DMG to `dist/` |
+| `scripts/run-app.sh [debug\|release]` | Bootstrap config, package, and open app |
+
+### Distribution
+
+- DMG filename version comes from `CFBundleShortVersionString` in `Resources/Info.plist`.
+- DMG contents: `Terminal Manager.app`, symlink to `/Applications`.
+- Builds are unsigned; Gatekeeper may block until the user allows the app manually.
+- For public distribution, sign with an Apple Developer ID and notarize via `notarytool`.
 
 ---
 
