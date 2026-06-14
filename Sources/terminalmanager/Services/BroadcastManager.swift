@@ -18,7 +18,10 @@ enum CommandTarget: String, CaseIterable, Identifiable {
 final class BroadcastManager: ObservableObject {
     @Published var commandText: String = ""
     @Published var target: CommandTarget = .selectedTab
+    @Published private(set) var commandHistory: [String] = []
+    @Published var presets: [String: String] = [:]
 
+    private static let maxHistoryCount = 20
     private var sendHandlers: [UUID: (String) -> Void] = [:]
 
     func register(tabID: UUID, handler: @escaping (String) -> Void) {
@@ -44,7 +47,33 @@ final class BroadcastManager: ObservableObject {
         for tabID in resolvedTabIDs(from: tabIDs) {
             sendHandlers[tabID]?(payload)
         }
+        recordCommand(commandText)
         commandText = ""
+    }
+
+    func recordCommand(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        commandHistory.removeAll { $0 == trimmed }
+        commandHistory.insert(trimmed, at: 0)
+        if commandHistory.count > Self.maxHistoryCount {
+            commandHistory = Array(commandHistory.prefix(Self.maxHistoryCount))
+        }
+    }
+
+    func applyPreset(_ name: String) {
+        guard let preset = presets[name] else { return }
+        commandText = preset
+    }
+
+    func setPreset(_ name: String, command: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        presets[trimmedName] = command
+    }
+
+    func removePreset(_ name: String) {
+        presets.removeValue(forKey: name)
     }
 
     /// Turns command-bar text into terminal input, preserving one line per command.

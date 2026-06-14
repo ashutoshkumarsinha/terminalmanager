@@ -10,6 +10,13 @@ single_instance = false  # true = one app instance per config directory
 start_maximized = false  # open window zoomed on launch
 restore_position = true  # persist frame/zoom in window-state.json
 
+[terminal]
+font_name = "Menlo"              # monospace font family
+font_size = 12                   # terminal font point size
+theme = "system"                 # system | light | dark
+restore_tabs_on_launch = false   # restore tabs from launch-state.json
+auto_reconnect = true            # prompt to reconnect when a session exits unexpectedly
+
 [ui]
 show_sidebar = true
 show_command_bar = true  # send-command toolbar above tab strip
@@ -19,9 +26,20 @@ confirm_on_exit = false  # prompt before quitting
 
 [sessions]
 file = "sessions.json"   # relative to config dir, or absolute path
+# sync_path = "~/Library/Mobile Documents/com~apple~CloudDocs/terminalmanager/sessions.json"
 
 [logging]
 level = "info"           # debug | info | warning | error
+log_terminal_io = true   # write terminal input/output to logs/terminal-io-*.log
+terminal_io_max_mb = 50  # rotate terminal I/O log when it exceeds this size
+
+[performance]
+launch_state_debounce_ms = 500      # coalesce launch-state.json writes
+sidebar_search_debounce_ms = 150    # sidebar filter debounce
+max_scrollback_lines = 10000        # terminal scrollback cap per tab
+sessions_save_off_main = true       # encode/write sessions.json off main thread
+hibernate_inactive_tabs_minutes = 30  # 0 = disable; terminate PTY for hidden tabs after N minutes
+terminal_io_metadata_only = false   # log byte counts instead of terminal content
 
 [[shortcuts]]
 id = "newTab"

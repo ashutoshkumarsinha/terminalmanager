@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SessionSidebarView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var configStore: ConfigStore
 
     @State private var selectedItemID: UUID?
     @State private var expandedFolderIDs: Set<UUID> = []
@@ -11,11 +12,31 @@ struct SessionSidebarView: View {
     @State private var renamingGroup: SessionGroup?
     @State private var showSaveGroupSheet = false
     @State private var itemPendingDeletion: SessionTreeItem?
+    @State private var searchText = ""
+    @State private var debouncedSearchText = ""
+    @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var connectionTestMessage: String?
+    @State private var sftpBrowseProfile: SessionProfile?
+
+    private var filteredTree: [SessionTreeItem] {
+        SessionTreeFilter.filter(configStore.sessionTree, query: debouncedSearchText)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
+            TextField("Search sessions…", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .onChange(of: searchText) { _, newValue in
+                    scheduleSearchDebounce(to: newValue)
+                }
+                .onAppear {
+                    debouncedSearchText = searchText
+                }
+
             List(selection: $selectedItemID) {
-                ForEach(appState.configStore.sessionTree) { item in
+                ForEach(filteredTree) { item in
                     SessionTreeRowView(
                         item: item,
                         parentFolderID: nil,
@@ -31,7 +52,16 @@ struct SessionSidebarView: View {
                         onDuplicateGroup: duplicateGroup,
                         onOpenSession: { appState.openTab(from: $0) },
                         onOpenGroup: { appState.openGroup($0) },
-                        onSaveTabsAsGroup: { showSaveGroupSheet = true }
+                        onSaveTabsAsGroup: { showSaveGroupSheet = true },
+                        onTestConnection: testConnection,
+                        onDuplicateToFolder: duplicateSessionToFolder,
+                        onBrowseSFTP: { sftpBrowseProfile = $0 },
+                        onUpdateGroupLayout: updateGroupLayout,
+                        onCreateEmptyGroup: {
+                            let group = appState.createEmptyGroup()
+                            selectedItemID = group.id
+                            renamingGroup = group
+                        }
                     )
                 }
             }
@@ -45,6 +75,17 @@ struct SessionSidebarView: View {
             .dropDestination(for: String.self) { items, _ in
                 handleRootDrop(items)
             }
+        }
+        .alert("Connection Test", isPresented: Binding(
+            get: { connectionTestMessage != nil },
+            set: { if !$0 { connectionTestMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { connectionTestMessage = nil }
+        } message: {
+            Text(connectionTestMessage ?? "")
+        }
+        .sheet(item: $sftpBrowseProfile) { profile in
+            SFTPBrowserView(profile: profile)
         }
         .contextMenu {
             sidebarBackgroundContextMenu()
@@ -122,7 +163,7 @@ struct SessionSidebarView: View {
             SessionEditorView(
                 profile: profile,
                 isNameAvailable: { candidate in
-                    !appState.configStore.sessionNameExists(candidate, excludingSessionID: profile.id)
+                    !configStore.sessionNameExists(candidate, excludingSessionID: profile.id)
                 }
             ) { saved in
                 _ = appState.updateSessionProfile(saved)
@@ -132,10 +173,10 @@ struct SessionSidebarView: View {
             FolderNameEditorView(
                 name: folder.name,
                 isNameAvailable: { candidate in
-                    !appState.configStore.folderNameExists(candidate, excludingID: folder.id)
+                    !configStore.folderNameExists(candidate, excludingID: folder.id)
                 }
             ) { newName in
-                _ = appState.configStore.renameFolder(id: folder.id, name: newName)
+                _ = configStore.renameFolder(id: folder.id, name: newName)
             }
         }
         .sheet(item: $renamingGroup) { group in
@@ -145,10 +186,10 @@ struct SessionSidebarView: View {
                 navigationTitle: "Rename Group",
                 duplicateMessage: "A group with this name already exists.",
                 isNameAvailable: { candidate in
-                    !appState.configStore.groupNameExists(candidate, excludingID: group.id)
+                    !configStore.groupNameExists(candidate, excludingID: group.id)
                 }
             ) { newName in
-                _ = appState.configStore.renameGroup(id: group.id, name: newName)
+                _ = configStore.renameGroup(id: group.id, name: newName)
             }
         }
         .sheet(isPresented: $showSaveGroupSheet) {
@@ -158,7 +199,7 @@ struct SessionSidebarView: View {
                 navigationTitle: "Save Tab Group",
                 duplicateMessage: "A group with this name already exists.",
                 isNameAvailable: { candidate in
-                    !appState.configStore.groupNameExists(candidate)
+                    !configStore.groupNameExists(candidate)
                 }
             ) { name in
                 if let group = appState.saveCurrentTabsAsGroup(name: name) {
@@ -200,12 +241,12 @@ struct SessionSidebarView: View {
 
     private var selectedSession: SessionProfile? {
         guard let selectedItemID else { return nil }
-        return ConfigStore.findSessionProfile(id: selectedItemID, in: appState.configStore.sessionTree)
+        return ConfigStore.findSessionProfile(id: selectedItemID, in: configStore.sessionTree)
     }
 
     private var selectedGroup: SessionGroup? {
         guard let selectedItemID,
-              let item = appState.configStore.item(withID: selectedItemID),
+              let item = configStore.item(withID: selectedItemID),
               case .group(let group) = item else {
             return nil
         }
@@ -214,7 +255,7 @@ struct SessionSidebarView: View {
 
     private func beginEditingSelection() {
         guard let selectedItemID,
-              let item = appState.configStore.item(withID: selectedItemID) else { return }
+              let item = configStore.item(withID: selectedItemID) else { return }
         switch item {
         case .session(let profile):
             editingSession = profile
@@ -227,20 +268,20 @@ struct SessionSidebarView: View {
 
     private func beginDeletingSelection() {
         guard let selectedItemID else { return }
-        if let item = appState.configStore.item(withID: selectedItemID) {
+        if let item = configStore.item(withID: selectedItemID) {
             itemPendingDeletion = item
             return
         }
         if let (groupID, member) = ConfigStore.findGroupMember(
             id: selectedItemID,
-            in: appState.configStore.sessionTree
+            in: configStore.sessionTree
         ) {
             deleteGroupMember(groupID: groupID, memberID: member.id)
         }
     }
 
     private func deleteGroupMember(groupID: UUID, memberID: UUID) {
-        _ = appState.configStore.removeMemberFromGroup(groupID: groupID, memberID: memberID)
+        _ = configStore.removeMemberFromGroup(groupID: groupID, memberID: memberID)
         if selectedItemID == memberID {
             selectedItemID = nil
         }
@@ -252,11 +293,11 @@ struct SessionSidebarView: View {
            let selectedID = selectedIDs.first,
            let (groupID, member) = ConfigStore.findGroupMember(
                id: selectedID,
-               in: appState.configStore.sessionTree
+               in: configStore.sessionTree
            ) {
             if let profile = ConfigStore.findSessionProfile(
                 id: member.sessionID,
-                in: appState.configStore.sessionTree
+                in: configStore.sessionTree
             ) {
                 Button("Connect") { appState.openTab(from: profile) }
                 Divider()
@@ -272,7 +313,7 @@ struct SessionSidebarView: View {
     }
 
     private func createFolder() {
-        let folder = appState.configStore.addFolder("New Folder")
+        let folder = configStore.addFolder("New Folder")
         selectedItemID = folder.id
         renamingFolder = folder
     }
@@ -302,7 +343,7 @@ struct SessionSidebarView: View {
             expandFolderPath(to: folderID)
         }
         let profile = SessionProfile(name: "New Session", host: "example.com", username: "user")
-        let saved = appState.configStore.addSession(profile, to: folderID)
+        let saved = configStore.addSession(profile, to: folderID)
         editingSession = saved
     }
 
@@ -310,7 +351,7 @@ struct SessionSidebarView: View {
         var current: UUID? = folderID
         while let id = current {
             expandedFolderIDs.insert(id)
-            current = ConfigStore.parentFolderID(of: id, in: appState.configStore.sessionTree)
+            current = ConfigStore.parentFolderID(of: id, in: configStore.sessionTree)
         }
     }
 
@@ -325,12 +366,12 @@ struct SessionSidebarView: View {
     }
 
     private func duplicateGroup(_ group: SessionGroup) {
-        guard let saved = appState.configStore.duplicateGroup(id: group.id) else { return }
+        guard let saved = configStore.duplicateGroup(id: group.id) else { return }
         selectedItemID = saved.id
     }
 
     private func duplicateSession(_ profile: SessionProfile) {
-        guard let saved = appState.configStore.duplicateSession(id: profile.id) else { return }
+        guard let saved = configStore.duplicateSession(id: profile.id) else { return }
         if saved.sshAuthMethod == .password, !saved.password.isEmpty {
             _ = SSHAuthHelper.writeAskpassScript(password: saved.password, profileID: saved.id)
         }
@@ -340,25 +381,74 @@ struct SessionSidebarView: View {
 
     private func handleRootDrop(_ items: [String]) -> Bool {
         guard let draggedID = items.compactMap({ UUID(uuidString: $0) }).first else { return false }
-        return appState.configStore.moveItem(withID: draggedID, toParentFolderID: nil, beforeItemID: nil)
+        return configStore.moveItem(withID: draggedID, toParentFolderID: nil, beforeItemID: nil)
     }
 
     @ViewBuilder
     private func sidebarBackgroundContextMenu() -> some View {
         Button("New Folder") { createFolder() }
         Button("New Session") { createSession() }
+        Button("New Empty Group") {
+            let group = appState.createEmptyGroup()
+            selectedItemID = group.id
+            renamingGroup = group
+        }
         if let group = selectedGroup {
             Button("Duplicate Group") { duplicateGroup(group) }
+            Button("Update Group Layout") { updateGroupLayout(group) }
         }
         if !appState.tabs.isEmpty {
             Divider()
             Button("Save Tabs as Group…") { showSaveGroupSheet = true }
         }
     }
+
+    private func testConnection(for profile: SessionProfile) {
+        Task {
+            let result = await appState.testConnection(for: profile)
+            switch result {
+            case .success:
+                connectionTestMessage = "Connection to \(profile.host) succeeded."
+            case .failure(let message):
+                connectionTestMessage = message
+            }
+        }
+    }
+
+    private func duplicateSessionToFolder(_ profile: SessionProfile) {
+        let folderID = appState.folderIDForNewSession()
+            ?? ConfigStore.parentFolderID(of: profile.id, in: configStore.sessionTree)
+        guard let folderID,
+              let saved = appState.duplicateSessionToFolder(sessionID: profile.id, folderID: folderID) else {
+            return
+        }
+        selectedItemID = saved.id
+    }
+
+    private func updateGroupLayout(_ group: SessionGroup) {
+        if appState.updateGroupLayout(for: group.id) {
+            connectionTestMessage = "Updated layout for group \"\(group.name)\"."
+        }
+    }
+
+    private func scheduleSearchDebounce(to value: String) {
+        searchDebounceTask?.cancel()
+        let delayMs = appState.settings.sidebarSearchDebounceMs
+        if delayMs <= 0 {
+            debouncedSearchText = value
+            return
+        }
+        searchDebounceTask = Task {
+            try? await Task.sleep(for: .milliseconds(delayMs))
+            guard !Task.isCancelled else { return }
+            debouncedSearchText = value
+        }
+    }
 }
 
 private struct SessionTreeRowView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var configStore: ConfigStore
 
     let item: SessionTreeItem
     let parentFolderID: UUID?
@@ -375,6 +465,11 @@ private struct SessionTreeRowView: View {
     let onOpenSession: (SessionProfile) -> Void
     let onOpenGroup: (SessionGroup) -> Void
     let onSaveTabsAsGroup: () -> Void
+    let onTestConnection: (SessionProfile) -> Void
+    let onDuplicateToFolder: (SessionProfile) -> Void
+    let onBrowseSFTP: (SessionProfile) -> Void
+    let onUpdateGroupLayout: (SessionGroup) -> Void
+    let onCreateEmptyGroup: () -> Void
 
     @State private var isDropTarget = false
 
@@ -400,7 +495,12 @@ private struct SessionTreeRowView: View {
                             onDuplicateGroup: onDuplicateGroup,
                             onOpenSession: onOpenSession,
                             onOpenGroup: onOpenGroup,
-                            onSaveTabsAsGroup: onSaveTabsAsGroup
+                            onSaveTabsAsGroup: onSaveTabsAsGroup,
+                            onTestConnection: onTestConnection,
+                            onDuplicateToFolder: onDuplicateToFolder,
+                            onBrowseSFTP: onBrowseSFTP,
+                            onUpdateGroupLayout: onUpdateGroupLayout,
+                            onCreateEmptyGroup: onCreateEmptyGroup
                         )
                     }
                 },
@@ -442,7 +542,7 @@ private struct SessionTreeRowView: View {
                             onOpenSession: onOpenSession,
                             onSaveTabsAsGroup: onSaveTabsAsGroup,
                             onDeleteMember: { groupID, memberID in
-                                _ = appState.configStore.removeMemberFromGroup(groupID: groupID, memberID: memberID)
+                                _ = configStore.removeMemberFromGroup(groupID: groupID, memberID: memberID)
                                 if selectedItemID == memberID {
                                     selectedItemID = nil
                                 }
@@ -476,10 +576,23 @@ private struct SessionTreeRowView: View {
             }
 
         case .session(let profile):
-            HStack {
+            HStack(spacing: 6) {
+                if let tagColor = TagColorHelper.color(from: profile.tagColor) {
+                    Circle()
+                        .fill(tagColor)
+                        .frame(width: 8, height: 8)
+                }
                 Label(profile.name, systemImage: SessionLookup.icon(for: profile.protocolType))
                 Spacer()
                 if profile.sftpEnabled {
+                    Button {
+                        onBrowseSFTP(profile)
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(.borderless)
+                    .appHelp("Browse remote files via SFTP")
+
                     Button {
                         appState.launchSFTP(for: profile)
                     } label: {
@@ -504,9 +617,12 @@ private struct SessionTreeRowView: View {
                 Button("New Session") { onNewSession(parentFolderID) }
                 Divider()
                 Button("Connect") { onOpenSession(profile) }
+                Button("Test Connection") { onTestConnection(profile) }
                 Button("Edit…") { onEditSession(profile) }
                 Button("Duplicate") { onDuplicateSession(profile) }
+                Button("Duplicate to Folder") { onDuplicateToFolder(profile) }
                 if profile.sftpEnabled {
+                    Button("Browse SFTP…") { onBrowseSFTP(profile) }
                     Button("SFTP") { appState.launchSFTP(for: profile) }
                 }
                 Divider()
@@ -536,6 +652,9 @@ private struct SessionTreeRowView: View {
             selectedItemID = group.id
             onDuplicateGroup(group)
         }
+        Button("Update Group Layout") { onUpdateGroupLayout(group) }
+            .disabled(appState.tabs.isEmpty)
+        Button("New Empty Group", action: onCreateEmptyGroup)
         Divider()
         Button("Delete", role: .destructive) {
             selectedItemID = group.id
@@ -588,22 +707,22 @@ private struct SessionTreeRowView: View {
 
         switch target {
         case .folder(let folder):
-            return appState.configStore.moveItem(
+            return configStore.moveItem(
                 withID: draggedID,
                 toParentFolderID: folder.id,
                 beforeItemID: nil
             )
         case .group(let group):
-            if ConfigStore.findSessionProfile(id: draggedID, in: appState.configStore.sessionTree) != nil {
-                return appState.configStore.addSessionToGroup(groupID: group.id, sessionID: draggedID)
+            if ConfigStore.findSessionProfile(id: draggedID, in: configStore.sessionTree) != nil {
+                return configStore.addSessionToGroup(groupID: group.id, sessionID: draggedID)
             }
-            return appState.configStore.moveItem(
+            return configStore.moveItem(
                 withID: draggedID,
                 toParentFolderID: parentFolderID,
                 beforeItemID: group.id
             )
         case .session:
-            return appState.configStore.moveItem(
+            return configStore.moveItem(
                 withID: draggedID,
                 toParentFolderID: parentFolderID,
                 beforeItemID: target.id
@@ -614,6 +733,7 @@ private struct SessionTreeRowView: View {
 
 private struct GroupMemberRowView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var configStore: ConfigStore
 
     let member: SessionGroupMember
     let groupID: UUID
@@ -668,7 +788,7 @@ private struct GroupMemberRowView: View {
     }
 
     private var sessionProfile: SessionProfile? {
-        ConfigStore.findSessionProfile(id: member.sessionID, in: appState.configStore.sessionTree)
+        ConfigStore.findSessionProfile(id: member.sessionID, in: configStore.sessionTree)
     }
 
     private var memberRowBackground: some View {
@@ -678,6 +798,34 @@ private struct GroupMemberRowView: View {
             } else {
                 Color.clear
             }
+        }
+    }
+}
+
+private enum TagColorHelper {
+    static func color(from value: String?) -> Color? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        if value.hasPrefix("#"), value.count >= 7 {
+            let hex = String(value.dropFirst())
+            if let rgb = Int(hex.prefix(6), radix: 16) {
+                let red = Double((rgb >> 16) & 0xFF) / 255
+                let green = Double((rgb >> 8) & 0xFF) / 255
+                let blue = Double(rgb & 0xFF) / 255
+                return Color(red: red, green: green, blue: blue)
+            }
+        }
+        switch value.lowercased() {
+        case "red": return .red
+        case "orange": return .orange
+        case "yellow": return .yellow
+        case "green": return .green
+        case "blue": return .blue
+        case "purple": return .purple
+        case "pink": return .pink
+        case "gray", "grey": return .gray
+        default: return nil
         }
     }
 }

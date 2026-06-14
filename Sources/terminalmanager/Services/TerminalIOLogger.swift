@@ -9,6 +9,9 @@ final class TerminalIOLogger: @unchecked Sendable {
     private var fileHandle: FileHandle?
     private var outputBuffer = ""
     private var flushWorkItem: DispatchWorkItem?
+    private var loggingEnabled = AppSettings.defaults.logTerminalIO
+    private var maxLogBytes = AppSettings.defaults.terminalIOMaxMB * 1_024 * 1_024
+    private var metadataOnly = AppSettings.defaults.terminalIOMetadataOnly
 
     private let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -26,20 +29,61 @@ final class TerminalIOLogger: @unchecked Sendable {
 
     private init() {}
 
+    func configure(enabled: Bool, maxMB: Int, metadataOnly: Bool = false) {
+        queue.async { [weak self] in
+            self?.loggingEnabled = enabled
+            self?.maxLogBytes = max(1, maxMB) * 1_024 * 1_024
+            self?.metadataOnly = metadataOnly
+        }
+    }
+
     func logInput(tabID: UUID, session: String, data: ArraySlice<UInt8>) {
-        guard let text = decode(data), !text.isEmpty else { return }
-        let entry = formatEntry(direction: "INPUT", tabID: tabID, session: session, text: text)
+        guard loggingEnabled, !data.isEmpty else { return }
+        let entry = makeEntry(direction: "INPUT", tabID: tabID, session: session, data: data)
         queue.async { [weak self] in
             self?.writeImmediately(entry)
         }
     }
 
     func logOutput(tabID: UUID, session: String, data: ArraySlice<UInt8>) {
-        guard let text = decode(data), !text.isEmpty else { return }
-        let entry = formatEntry(direction: "OUTPUT", tabID: tabID, session: session, text: text)
+        guard loggingEnabled, !data.isEmpty else { return }
+        let entry = makeEntry(direction: "OUTPUT", tabID: tabID, session: session, data: data)
         queue.async { [weak self] in
             self?.bufferOutput(entry)
         }
+    }
+
+    static func metadataEntry(
+        direction: String,
+        tabID: UUID,
+        session: String,
+        byteCount: Int,
+        timestamp: Date = Date(),
+        timestampFormatter: DateFormatter? = nil
+    ) -> String {
+        let formatter = timestampFormatter ?? {
+            let f = DateFormatter()
+            f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+            f.locale = Locale(identifier: "en_US_POSIX")
+            return f
+        }()
+        let label = session.isEmpty ? "session" : session
+        return "[\(formatter.string(from: timestamp))] [\(direction)] [tab=\(tabID.uuidString)] [\(label)] \(byteCount) bytes"
+    }
+
+    private func makeEntry(direction: String, tabID: UUID, session: String, data: ArraySlice<UInt8>) -> String {
+        if metadataOnly {
+            return Self.metadataEntry(
+                direction: direction,
+                tabID: tabID,
+                session: session,
+                byteCount: data.count,
+                timestamp: Date(),
+                timestampFormatter: timestampFormatter
+            )
+        }
+        guard let text = decode(data), !text.isEmpty else { return "" }
+        return formatEntry(direction: direction, tabID: tabID, session: session, text: text)
     }
 
     private func formatEntry(direction: String, tabID: UUID, session: String, text: String) -> String {
@@ -65,6 +109,7 @@ final class TerminalIOLogger: @unchecked Sendable {
     }
 
     private func bufferOutput(_ entry: String) {
+        guard !entry.isEmpty else { return }
         if outputBuffer.isEmpty {
             outputBuffer = entry
         } else {
@@ -89,10 +134,25 @@ final class TerminalIOLogger: @unchecked Sendable {
     }
 
     private func writeImmediately(_ text: String) {
-        guard let handle = openLogHandle() else { return }
+        guard loggingEnabled, !text.isEmpty, let handle = openLogHandle() else { return }
+        rotateIfNeeded(for: handle)
         guard let data = (text + "\n").data(using: .utf8) else { return }
         handle.seekToEndOfFile()
         handle.write(data)
+    }
+
+    private func rotateIfNeeded(for handle: FileHandle) {
+        guard let url = logFileURL else { return }
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+        guard size >= maxLogBytes else { return }
+
+        try? handle.close()
+        fileHandle = nil
+
+        let rotated = url.deletingPathExtension().appendingPathExtension("log.1")
+        try? FileManager.default.removeItem(at: rotated)
+        try? FileManager.default.moveItem(at: url, to: rotated)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
     }
 
     private func openLogHandle() -> FileHandle? {

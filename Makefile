@@ -1,5 +1,5 @@
 .PHONY: help build build-debug build-release package package-debug package-release \
-	run bootstrap dmg test clean
+	run bootstrap dmg notarize test clean
 
 CONFIG ?= debug
 APP := Terminal Manager.app
@@ -15,6 +15,7 @@ help:
 	@echo "  make run              Bootstrap config, package, and open app"
 	@echo "  make bootstrap        Create ~/.terminalmanager from example config"
 	@echo "  make dmg              Build release app and create dist/*.dmg"
+	@echo "  make notarize         Sign and notarize DMG (Apple Developer credentials)"
 	@echo "  make test             Run Swift tests"
 	@echo "  make clean            Remove build artifacts and app bundle"
 
@@ -38,6 +39,9 @@ bootstrap:
 
 dmg:
 	bash $(SCRIPTS)/create-dmg.sh
+
+notarize:
+	bash $(SCRIPTS)/notarize-dmg.sh
 
 test:
 	swift test

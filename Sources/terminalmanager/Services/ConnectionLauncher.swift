@@ -88,6 +88,10 @@ enum ConnectionLauncher {
         if let port = profile.port, port != 22 {
             args += ["-P", String(port)]
         }
+        if let jump = profile.proxyJump?.trimmingCharacters(in: .whitespacesAndNewlines), !jump.isEmpty {
+            args += ["-J", jump]
+        }
+        appendSSHExtraOptions(profile.sshExtraOptions, to: &args)
         if profile.sshAuthMethod == .privateKey,
            let keyPath = SSHAuthHelper.expandedKeyPath(profile.sshKeyPath) {
             args += ["-i", keyPath, "-o", "IdentitiesOnly=yes"]
@@ -95,8 +99,9 @@ enum ConnectionLauncher {
         let target = profile.username.isEmpty ? profile.host : "\(profile.username)@\(profile.host)"
         args.append(target)
         var environment: [String]?
-        if profile.sshAuthMethod == .password, !profile.password.isEmpty {
-            environment = SSHAuthHelper.askpassEnvironment(password: profile.password, profileID: profile.id)
+        if profile.sshAuthMethod == .password,
+           let password = SSHAuthHelper.resolvedPassword(for: profile) {
+            environment = SSHAuthHelper.askpassEnvironment(password: password, profileID: profile.id)
         }
         return ConnectionCommand(
             executable: "/usr/bin/sftp",
@@ -135,8 +140,9 @@ enum ConnectionLauncher {
         args.append(target)
         let startup = resolvedStartupCommands(for: profile)
         var environment: [String]?
-        if profile.sshAuthMethod == .password, !profile.password.isEmpty {
-            environment = SSHAuthHelper.askpassEnvironment(password: profile.password, profileID: profile.id)
+        if profile.sshAuthMethod == .password,
+           let password = SSHAuthHelper.resolvedPassword(for: profile) {
+            environment = SSHAuthHelper.askpassEnvironment(password: password, profileID: profile.id)
         }
         return ConnectionCommand(
             executable: "/usr/bin/ssh",
@@ -153,6 +159,10 @@ enum ConnectionLauncher {
         if let port = profile.port, port != 22 {
             args += ["-p", String(port)]
         }
+        if let jump = profile.proxyJump?.trimmingCharacters(in: .whitespacesAndNewlines), !jump.isEmpty {
+            args += ["-J", jump]
+        }
+        appendSSHExtraOptions(profile.sshExtraOptions, to: &args)
         switch profile.sshAuthMethod {
         case .agent:
             break
@@ -166,6 +176,37 @@ enum ConnectionLauncher {
             }
         }
         return args
+    }
+
+    /// Parses newline-separated SSH options; supports `-o Key=Value` lines and other `-` flags.
+    static func appendSSHExtraOptions(_ options: String?, to args: inout [String]) {
+        guard let options, !options.isEmpty else { return }
+        for line in options.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+
+            if trimmed.hasPrefix("-o ") {
+                let rest = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces)
+                if let equals = rest.firstIndex(of: "=") {
+                    let key = rest[..<equals].trimmingCharacters(in: .whitespaces)
+                    let value = rest[rest.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+                    args += ["-o", "\(key)=\(value)"]
+                } else {
+                    let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)
+                    if parts.count == 2 {
+                        args += ["-o", "\(parts[0])=\(parts[1])"]
+                    } else if parts.count == 1 {
+                        args += ["-o", parts[0]]
+                    }
+                }
+            } else if trimmed.hasPrefix("-") {
+                let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+                args.append(parts[0])
+                if parts.count > 1 {
+                    args.append(parts[1])
+                }
+            }
+        }
     }
 
     private static func loadScriptLines(from path: String) -> [String]? {

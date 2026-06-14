@@ -20,7 +20,8 @@ Lightweight macOS tabbed terminal session manager written in Swift. Terminal Man
 | Document | Description |
 |----------|-------------|
 | [User Guide](docs/USER_GUIDE.md) | Day-to-day usage; also available in-app via **Help → Terminal Manager Help** (⌘?) |
-| [Functional Spec](docs/SPEC.md) | Requirements, config schemas, shortcuts |
+| [Functional Spec](docs/SPEC.md) | Requirements, config schemas, shortcuts, **roadmap (§8)**, **performance plan (§9)** |
+| [Performance baseline](docs/PERFORMANCE.md) | Instruments workflow, Phase 3.0 targets |
 | [High-Level Design](docs/HLD.md) | Architecture, data models, component diagram |
 
 ## Requirements

@@ -55,6 +55,45 @@ enum WindowStateManager {
         save(from: window)
     }
 
+    private static var detachedStateURL: URL {
+        FileLocations.configDirectory.appendingPathComponent("detached-window-state.json")
+    }
+
+    static func applyDetachedLaunchSettings(to window: NSWindow, tabID: UUID) {
+        guard currentSettings().restoreWindowPosition,
+              let states = loadDetachedStates(),
+              let saved = states[tabID.uuidString] else {
+            return
+        }
+        window.setFrame(clampedFrame(saved.frame, for: window), display: false)
+        if saved.isZoomed {
+            window.zoom(nil)
+        }
+    }
+
+    static func saveDetached(from window: NSWindow, tabID: UUID) {
+        guard currentSettings().restoreWindowPosition else { return }
+        var states = loadDetachedStates() ?? [:]
+        states[tabID.uuidString] = SavedWindowState(frame: window.frame, isZoomed: window.isZoomed)
+        do {
+            let data = try JSONEncoder().encode(states)
+            try data.write(to: detachedStateURL, options: .atomic)
+        } catch {
+            AppLogger.shared.error("Failed to save detached window state: \(error)")
+        }
+    }
+
+    private static func loadDetachedStates() -> [String: SavedWindowState]? {
+        guard FileManager.default.fileExists(atPath: detachedStateURL.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: detachedStateURL)
+            return try JSONDecoder().decode([String: SavedWindowState].self, from: data)
+        } catch {
+            AppLogger.shared.error("Failed to load detached window state: \(error)")
+            return nil
+        }
+    }
+
     private static func load() -> SavedWindowState? {
         guard FileManager.default.fileExists(atPath: stateURL.path) else { return nil }
         do {

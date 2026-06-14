@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static weak var shared: AppDelegate?
 
     private var pendingOpenURLs: [String] = []
+    var onTerminateFlush: (() -> Void)?
 
     override init() {
         super.init()
@@ -19,7 +20,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        pendingOpenURLs.append(contentsOf: urls.map(\.absoluteString))
+        for url in urls {
+            if let connectionString = Self.connectionString(from: url) {
+                pendingOpenURLs.append(connectionString)
+            }
+        }
     }
 
     func dequeuePendingOpenURLs() -> [String] {
@@ -27,6 +32,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingOpenURLs.removeAll()
         return urls
     }
+
+    static func connectionString(from url: URL) -> String? {
+        if url.scheme?.lowercased() == "terminalmanager" {
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            if let uri = components?.queryItems?.first(where: { $0.name == "uri" })?.value {
+                return uri.removingPercentEncoding ?? uri
+            }
+            return nil
+        }
+        return url.absoluteString
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         if SingleInstanceManager.shouldExitAsDuplicate() {
             exit(0)
@@ -57,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        onTerminateFlush?()
         WindowStateManager.saveMainWindowIfNeeded()
     }
 

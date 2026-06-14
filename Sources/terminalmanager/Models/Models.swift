@@ -77,6 +77,9 @@ struct SessionProfile: Identifiable, Codable, Hashable {
     var sftpEnabled: Bool
     var notes: String
     var initialDirectory: String?
+    var tagColor: String?
+    var proxyJump: String?
+    var sshExtraOptions: String?
 
     init(
         id: UUID = UUID(),
@@ -92,7 +95,10 @@ struct SessionProfile: Identifiable, Codable, Hashable {
         startupScriptPath: String? = nil,
         sftpEnabled: Bool = false,
         notes: String = "",
-        initialDirectory: String? = nil
+        initialDirectory: String? = nil,
+        tagColor: String? = nil,
+        proxyJump: String? = nil,
+        sshExtraOptions: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -108,6 +114,9 @@ struct SessionProfile: Identifiable, Codable, Hashable {
         self.sftpEnabled = sftpEnabled
         self.notes = notes
         self.initialDirectory = initialDirectory
+        self.tagColor = tagColor
+        self.proxyJump = proxyJump
+        self.sshExtraOptions = sshExtraOptions
     }
 
     enum CodingKeys: String, CodingKey {
@@ -115,6 +124,7 @@ struct SessionProfile: Identifiable, Codable, Hashable {
         case sshAuthMethod, password, sshKeyPath
         case initScript, startupScriptPath
         case sftpEnabled, notes, initialDirectory
+        case tagColor, proxyJump, sshExtraOptions
     }
 
     init(from decoder: Decoder) throws {
@@ -133,6 +143,9 @@ struct SessionProfile: Identifiable, Codable, Hashable {
         sftpEnabled = try container.decodeIfPresent(Bool.self, forKey: .sftpEnabled) ?? false
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         initialDirectory = try container.decodeIfPresent(String.self, forKey: .initialDirectory)
+        tagColor = try container.decodeIfPresent(String.self, forKey: .tagColor)
+        proxyJump = try container.decodeIfPresent(String.self, forKey: .proxyJump)
+        sshExtraOptions = try container.decodeIfPresent(String.self, forKey: .sshExtraOptions)
         if port == nil {
             port = protocolType.defaultPort
         }
@@ -259,6 +272,52 @@ struct KeyboardShortcutBinding: Codable, Hashable, Identifiable {
     }
 }
 
+enum TerminalTheme: String, Codable, CaseIterable, Equatable {
+    case system
+    case light
+    case dark
+}
+
+struct SessionTemplate: Identifiable, Codable, Hashable {
+    var id: UUID
+    var name: String
+    var protocolType: ConnectionProtocol
+    var username: String
+    var port: Int?
+    var sshAuthMethod: SSHAuthMethod
+    var sshKeyPath: String?
+    var initScript: String
+    var proxyJump: String?
+    var sshExtraOptions: String?
+    var tagColor: String?
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        protocolType: ConnectionProtocol = .ssh,
+        username: String = "",
+        port: Int? = nil,
+        sshAuthMethod: SSHAuthMethod = .agent,
+        sshKeyPath: String? = nil,
+        initScript: String = "",
+        proxyJump: String? = nil,
+        sshExtraOptions: String? = nil,
+        tagColor: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.protocolType = protocolType
+        self.username = username
+        self.port = port ?? protocolType.defaultPort
+        self.sshAuthMethod = sshAuthMethod
+        self.sshKeyPath = sshKeyPath
+        self.initScript = initScript
+        self.proxyJump = proxyJump
+        self.sshExtraOptions = sshExtraOptions
+        self.tagColor = tagColor
+    }
+}
+
 struct AppSettings: Equatable {
     var version: Int
     var singleInstance: Bool
@@ -272,6 +331,21 @@ struct AppSettings: Equatable {
     var broadcastEnabled: Bool
     var confirmOnExit: Bool
     var logLevel: LogLevel
+    var terminalFontName: String
+    var terminalFontSize: Double
+    var terminalTheme: TerminalTheme
+    var restoreTabsOnLaunch: Bool
+    var logTerminalIO: Bool
+    var terminalIOMaxMB: Int
+    var autoReconnect: Bool
+    var syncSessionsPath: String?
+    var sessionTemplates: [SessionTemplate]
+    var launchStateDebounceMs: Int
+    var sidebarSearchDebounceMs: Int
+    var maxScrollbackLines: Int
+    var sessionsSaveOffMain: Bool
+    var hibernateInactiveTabsMinutes: Int
+    var terminalIOMetadataOnly: Bool
 
     static let defaults = AppSettings(
         version: 1,
@@ -292,7 +366,22 @@ struct AppSettings: Equatable {
         showTooltips: true,
         broadcastEnabled: true,
         confirmOnExit: false,
-        logLevel: .info
+        logLevel: .info,
+        terminalFontName: "Menlo",
+        terminalFontSize: 12,
+        terminalTheme: .system,
+        restoreTabsOnLaunch: false,
+        logTerminalIO: true,
+        terminalIOMaxMB: 50,
+        autoReconnect: true,
+        syncSessionsPath: nil,
+        sessionTemplates: [],
+        launchStateDebounceMs: 500,
+        sidebarSearchDebounceMs: 150,
+        maxScrollbackLines: 10_000,
+        sessionsSaveOffMain: true,
+        hibernateInactiveTabsMinutes: 30,
+        terminalIOMetadataOnly: false
     )
 }
 
@@ -308,6 +397,13 @@ enum SplitOrientation: String, Codable {
     case vertical
 }
 
+enum TabSessionState: String, Codable, Hashable {
+    case idle
+    case running
+    case exited
+    case hibernated
+}
+
 struct TerminalTab: Identifiable, Hashable {
     let id: UUID
     var title: String
@@ -317,6 +413,8 @@ struct TerminalTab: Identifiable, Hashable {
     /// Split panes share a tab-strip entry with their anchor tab and are not shown as separate tabs.
     var isSplitPane: Bool
     var initScript: String
+    var sessionState: TabSessionState
+    var exitCode: Int32?
 
     init(
         id: UUID = UUID(),
@@ -325,7 +423,9 @@ struct TerminalTab: Identifiable, Hashable {
         overrideCommand: ConnectionCommand? = nil,
         isDetached: Bool = false,
         isSplitPane: Bool = false,
-        initScript: String = ""
+        initScript: String = "",
+        sessionState: TabSessionState = .idle,
+        exitCode: Int32? = nil
     ) {
         self.id = id
         self.title = title
@@ -334,10 +434,12 @@ struct TerminalTab: Identifiable, Hashable {
         self.isDetached = isDetached
         self.isSplitPane = isSplitPane
         self.initScript = initScript
+        self.sessionState = sessionState
+        self.exitCode = exitCode
     }
 }
 
-struct SplitLayoutNode: Identifiable, Hashable {
+struct SplitLayoutNode: Identifiable, Codable, Hashable {
     let id: UUID
     var orientation: SplitOrientation?
     var tabID: UUID?

@@ -25,6 +25,11 @@ let package = Package(
                     .when(configuration: .release)
                 )
             ]
+        ),
+        .testTarget(
+            name: "terminalmanagerTests",
+            dependencies: ["terminalmanager"],
+            path: "Tests/terminalmanagerTests"
         )
     ]
 )

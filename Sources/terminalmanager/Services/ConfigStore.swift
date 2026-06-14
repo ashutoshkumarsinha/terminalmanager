@@ -3,7 +3,11 @@ import Foundation
 @MainActor
 final class ConfigStore: ObservableObject {
     @Published private(set) var settings: AppSettings = .defaults
-    @Published private(set) var sessionTree: [SessionTreeItem] = []
+    @Published private(set) var sessionTree: [SessionTreeItem] = [] {
+        didSet { treeIndex.rebuild(from: sessionTree) }
+    }
+
+    private var treeIndex = SessionTreeIndex()
 
     private let jsonEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -12,7 +16,6 @@ final class ConfigStore: ObservableObject {
     }()
 
     private let jsonDecoder = JSONDecoder()
-    private var saveSessionsWorkItem: DispatchWorkItem?
 
     var configTomlURL: URL { FileLocations.configTomlURL }
 
@@ -34,33 +37,33 @@ final class ConfigStore: ObservableObject {
     }
 
     func saveSessions() {
-        do {
-            let config = SessionConfiguration(version: 1, sessionTree: sessionTree)
-            let data = try jsonEncoder.encode(config)
-            let url = sessionsURL
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: url, options: .atomic)
-        } catch {
-            AppLogger.shared.error("Failed to save sessions: \(error)")
-        }
+        let tree = sessionTreeForPersistence()
+        PersistenceCoordinator.flushSessionsSave(
+            tree: tree,
+            to: sessionsURL,
+            offMain: settings.sessionsSaveOffMain
+        )
     }
 
     func scheduleSaveSessions() {
-        saveSessionsWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            self?.saveSessions()
-        }
-        saveSessionsWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+        let tree = sessionTreeForPersistence()
+        PersistenceCoordinator.scheduleSessionsSave(
+            tree: tree,
+            to: sessionsURL,
+            debounceMs: 250,
+            offMain: settings.sessionsSaveOffMain
+        )
+    }
+
+    func flushPendingSaves() {
+        saveSessions()
     }
 
     func updateSettings(_ newSettings: AppSettings) {
         let sessionsPathChanged = newSettings.sessionsFile != settings.sessionsFile
         settings = newSettings
         saveSettings()
+        applyLoggerSettings()
         if sessionsPathChanged {
             loadSessions()
         }
@@ -71,8 +74,9 @@ final class ConfigStore: ObservableObject {
         scheduleSaveSessions()
     }
 
-    func exportSessions(to url: URL) throws {
-        let config = SessionConfiguration(version: 1, sessionTree: sessionTree)
+    func exportSessions(to url: URL, redactSecrets: Bool = false) throws {
+        let tree = redactSecrets ? SessionExportRedactor.redact(sessionTree) : sessionTreeForPersistence()
+        let config = SessionConfiguration(version: 1, sessionTree: tree)
         let data = try jsonEncoder.encode(config)
         try data.write(to: url, options: .atomic)
     }
@@ -89,6 +93,10 @@ final class ConfigStore: ObservableObject {
         let siblings = siblingItems(inFolderID: folderID)
         var saved = profile
         saved.name = uniqueSessionName(basedOn: profile.name, among: siblings)
+        if saved.sshAuthMethod == .password {
+            SSHAuthHelper.storePassword(saved.password, for: saved.id)
+            saved.password = ""
+        }
         if let folderID {
             sessionTree = insertSession(saved, folderID: folderID, beforeItemID: nil, in: sessionTree)
         } else {
@@ -102,11 +110,16 @@ final class ConfigStore: ObservableObject {
     func duplicateSession(id: UUID) -> SessionProfile? {
         guard let item = item(withID: id), case .session(let source) = item else { return nil }
 
-        let parentFolderID = Self.parentFolderID(of: id, in: sessionTree)
+        let parentFolderID = parentFolderID(of: id)
         let siblings = siblingItems(inFolderID: parentFolderID)
         var copy = source
         copy.id = UUID()
         copy.name = uniqueSessionName(basedOn: source.name, among: siblings)
+
+        if copy.sshAuthMethod == .password, let password = SSHAuthHelper.resolvedPassword(for: source) {
+            SSHAuthHelper.storePassword(password, for: copy.id)
+            copy.password = ""
+        }
 
         let beforeItemID = siblingIDAfter(sessionID: id, in: siblings)
         if let parentFolderID {
@@ -129,10 +142,69 @@ final class ConfigStore: ObservableObject {
 
     @discardableResult
     func addGroup(_ name: String) -> SessionGroup {
-        let group = SessionGroup(name: uniqueGroupName(basedOn: name))
+        createEmptyGroup(name: name)
+    }
+
+    @discardableResult
+    func createEmptyGroup(name: String) -> SessionGroup {
+        let group = SessionGroup(name: uniqueGroupName(basedOn: name), members: [], layout: nil)
         sessionTree = sessionTree + [.group(group)]
         scheduleSaveSessions()
         return group
+    }
+
+    @discardableResult
+    func duplicateSessionToFolder(sessionID: UUID, folderID: UUID) -> SessionProfile? {
+        guard let sessionItem = item(withID: sessionID), case .session(let source) = sessionItem else { return nil }
+        guard let folderItem = item(withID: folderID), case .folder = folderItem else { return nil }
+
+        let siblings = siblingItems(inFolderID: folderID)
+        var copy = source
+        copy.id = UUID()
+        copy.name = uniqueSessionName(basedOn: source.name, among: siblings)
+        if copy.sshAuthMethod == .password, let password = SSHAuthHelper.resolvedPassword(for: source) {
+            SSHAuthHelper.storePassword(password, for: copy.id)
+            copy.password = ""
+        }
+
+        sessionTree = insertSession(copy, folderID: folderID, beforeItemID: nil, in: sessionTree)
+        scheduleSaveSessions()
+        AppLogger.shared.info("Duplicated session '\(source.name)' to folder as '\(copy.name)'")
+        return copy
+    }
+
+    @discardableResult
+    func updateGroupLayout(
+        groupID: UUID,
+        from tabs: [TerminalTab],
+        splitLayouts: [UUID: SplitLayoutNode],
+        selectedTabID: UUID?
+    ) -> Bool {
+        guard var group = group(withID: groupID) else { return false }
+
+        let tabsWithProfiles = tabs.compactMap { tab -> (TerminalTab, SessionProfile)? in
+            guard !tab.isSplitPane, let profile = tab.profile else { return nil }
+            return (tab, profile)
+        }
+        guard !tabsWithProfiles.isEmpty else { return false }
+
+        var members: [SessionGroupMember] = []
+        var tabToMember: [UUID: UUID] = [:]
+        for (tab, profile) in tabsWithProfiles {
+            let member = SessionGroupMember(sessionID: profile.id)
+            members.append(member)
+            tabToMember[tab.id] = member.id
+        }
+
+        group.members = members
+        if let selectedTabID,
+           let layout = splitLayout(containing: selectedTabID, splitLayouts: splitLayouts) {
+            group.layout = GroupLayoutMapper.fromSplitLayout(layout, tabToMember: tabToMember)
+        } else {
+            group.layout = nil
+        }
+
+        return updateGroup(group)
     }
 
     @discardableResult
@@ -247,6 +319,10 @@ final class ConfigStore: ObservableObject {
         guard !trimmed.isEmpty, !sessionNameExists(trimmed, excludingSessionID: profile.id) else { return false }
         var saved = profile
         saved.name = trimmed
+        if saved.sshAuthMethod == .password {
+            SSHAuthHelper.storePassword(saved.password, for: saved.id)
+            saved.password = ""
+        }
         sessionTree = updateInTree(sessionTree, id: profile.id) { item in
             guard case .session = item else { return item }
             return .session(saved)
@@ -453,7 +529,15 @@ final class ConfigStore: ObservableObject {
     }
 
     func item(withID id: UUID) -> SessionTreeItem? {
-        Self.findItem(id: id, in: sessionTree)
+        treeIndex.item(withID: id) ?? Self.findItem(id: id, in: sessionTree)
+    }
+
+    func sessionProfile(withID id: UUID) -> SessionProfile? {
+        treeIndex.sessionProfile(withID: id) ?? Self.findSessionProfile(id: id, in: sessionTree)
+    }
+
+    func parentFolderID(of itemID: UUID) -> UUID? {
+        treeIndex.parentFolderID(of: itemID) ?? Self.parentFolderID(of: itemID, in: sessionTree)
     }
 
     private func updateInTree(
@@ -640,14 +724,25 @@ final class ConfigStore: ObservableObject {
         guard FileManager.default.fileExists(atPath: url.path) else {
             settings = .defaults
             saveSettings()
+            applyLoggerSettings()
             return
         }
         do {
             settings = try TomlConfigCodec.decode(from: url)
+            applyLoggerSettings()
         } catch {
             AppLogger.shared.error("Failed to load config.toml: \(error)")
             settings = .defaults
+            applyLoggerSettings()
         }
+    }
+
+    private func applyLoggerSettings() {
+        TerminalIOLogger.shared.configure(
+            enabled: settings.logTerminalIO,
+            maxMB: settings.terminalIOMaxMB,
+            metadataOnly: settings.terminalIOMetadataOnly
+        )
     }
 
     private func loadSessions() {
@@ -660,11 +755,70 @@ final class ConfigStore: ObservableObject {
         do {
             let data = try Data(contentsOf: url)
             let config = try jsonDecoder.decode(SessionConfiguration.self, from: data)
-            sessionTree = config.sessionTree
+            let (tree, migrated) = migratePasswordsToKeychain(in: config.sessionTree)
+            sessionTree = tree
+            if migrated {
+                scheduleSaveSessions()
+            }
         } catch {
             AppLogger.shared.error("Failed to load sessions JSON: \(error)")
             sessionTree = sampleSessionTree()
         }
+    }
+
+    private func sessionTreeForPersistence() -> [SessionTreeItem] {
+        persistPasswords(in: sessionTree)
+    }
+
+    private func persistPasswords(in items: [SessionTreeItem]) -> [SessionTreeItem] {
+        items.map { item in
+            switch item {
+            case .session(var profile):
+                if profile.sshAuthMethod == .password, !profile.password.isEmpty {
+                    SSHAuthHelper.storePassword(profile.password, for: profile.id)
+                    profile.password = ""
+                }
+                return .session(profile)
+            case .folder(var folder):
+                folder.children = persistPasswords(in: folder.children)
+                return .folder(folder)
+            case .group:
+                return item
+            }
+        }
+    }
+
+    private func migratePasswordsToKeychain(in items: [SessionTreeItem]) -> ([SessionTreeItem], Bool) {
+        var migrated = false
+        let tree = items.map { item -> SessionTreeItem in
+            switch item {
+            case .session(var profile):
+                if SSHAuthHelper.migratePasswordToKeychain(for: &profile) {
+                    migrated = true
+                }
+                return .session(profile)
+            case .folder(var folder):
+                let (children, childMigrated) = migratePasswordsToKeychain(in: folder.children)
+                folder.children = children
+                migrated = migrated || childMigrated
+                return .folder(folder)
+            case .group:
+                return item
+            }
+        }
+        return (tree, migrated)
+    }
+
+    private func splitLayout(
+        containing tabID: UUID,
+        splitLayouts: [UUID: SplitLayoutNode]
+    ) -> SplitLayoutNode? {
+        if let anchor = splitLayouts.keys.first(where: { key in
+            splitLayouts[key]?.tabIDsInLayout().contains(tabID) == true
+        }) {
+            return splitLayouts[anchor]
+        }
+        return nil
     }
 
     private func siblingIDAfter(sessionID: UUID, in siblings: [SessionTreeItem]) -> UUID? {

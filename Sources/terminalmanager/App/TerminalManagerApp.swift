@@ -10,6 +10,7 @@ struct TerminalManagerApp: App {
         WindowGroup(AppInfo.displayName) {
             MainWindowView()
                 .environmentObject(appState)
+                .environmentObject(appState.configStore)
                 .environment(\.showTooltips, appState.settings.showTooltips)
                 .onAppear {
                     appState.bootstrap()
@@ -17,7 +18,9 @@ struct TerminalManagerApp: App {
                     NSApp.activate(ignoringOtherApps: true)
                 }
                 .onOpenURL { url in
-                    appState.openConnectionString(url.absoluteString)
+                    if let connectionString = AppDelegate.connectionString(from: url) {
+                        appState.openConnectionString(connectionString)
+                    }
                 }
         }
         .defaultSize(width: 1280, height: 800)
@@ -38,6 +41,9 @@ struct TerminalManagerApp: App {
                     .keyboardShortcut("]", modifiers: [.command, .shift])
                 Button("Previous Tab") { appState.selectPreviousTab() }
                     .keyboardShortcut("[", modifiers: [.command, .shift])
+                Divider()
+                Button("Find in Terminal…") { appState.showFindBar = true }
+                    .keyboardShortcut("f", modifiers: .command)
                 Divider()
                 Button("Split Horizontally") { appState.splitSelectedTab(orientation: .horizontal) }
                 Button("Split Vertically") { appState.splitSelectedTab(orientation: .vertical) }
@@ -120,6 +126,7 @@ struct TerminalManagerApp: App {
         Settings {
             SettingsView()
                 .environmentObject(appState)
+                .environmentObject(appState.configStore)
                 .environment(\.showTooltips, appState.settings.showTooltips)
         }
 
@@ -132,6 +139,7 @@ struct TerminalManagerApp: App {
             if let tabID {
                 DetachedWindowView(tabID: tabID)
                     .environmentObject(appState)
+                    .environmentObject(appState.configStore)
                     .environment(\.showTooltips, appState.settings.showTooltips)
             }
         }

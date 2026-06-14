@@ -10,6 +10,9 @@ struct SessionEditorView: View {
     @State private var initialDirectoryText: String
     @State private var sshKeyPathText: String
     @State private var startupScriptPathText: String
+    @State private var tagColorText: String
+    @State private var proxyJumpText: String
+    @State private var sshExtraOptionsText: String
 
     let isNameAvailable: (String) -> Bool
     let onSave: (SessionProfile) -> Void
@@ -24,6 +27,9 @@ struct SessionEditorView: View {
         _initialDirectoryText = State(initialValue: profile.initialDirectory ?? "")
         _sshKeyPathText = State(initialValue: profile.sshKeyPath ?? "")
         _startupScriptPathText = State(initialValue: profile.startupScriptPath ?? "")
+        _tagColorText = State(initialValue: profile.tagColor ?? "")
+        _proxyJumpText = State(initialValue: profile.proxyJump ?? "")
+        _sshExtraOptionsText = State(initialValue: profile.sshExtraOptions ?? "")
         self.isNameAvailable = isNameAvailable
         self.onSave = onSave
     }
@@ -84,7 +90,7 @@ struct SessionEditorView: View {
 
                             if profile.sshAuthMethod == .password {
                                 SecureField("Password", text: $profile.password)
-                                Text("Stored in sessions.json. Prefer SSH keys when possible.")
+                                Text("Passwords are stored in the Keychain when saved, not in sessions.json.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -97,7 +103,18 @@ struct SessionEditorView: View {
                                 }
                             }
                         }
+
+                        Section("SSH Options") {
+                            TextField("ProxyJump (-J)", text: $proxyJumpText, prompt: Text("bastion.example.com"))
+                            TextField("Extra SSH options", text: $sshExtraOptionsText, prompt: Text("-o ServerAliveInterval=30"))
+                                .font(.system(.body, design: .monospaced))
+                        }
                     }
+                }
+
+                Section("Appearance") {
+                    TextField("Tag color", text: $tagColorText, prompt: Text("#FF5500 or green"))
+                        .appHelp("Optional color shown beside the session in the sidebar")
                 }
 
                 Section("Options") {
@@ -191,6 +208,19 @@ struct SessionEditorView: View {
 
         let scriptPath = startupScriptPathText.trimmingCharacters(in: .whitespacesAndNewlines)
         saved.startupScriptPath = scriptPath.isEmpty ? nil : scriptPath
+
+        let tagColor = tagColorText.trimmingCharacters(in: .whitespacesAndNewlines)
+        saved.tagColor = tagColor.isEmpty ? nil : tagColor
+
+        if saved.protocolType == .ssh {
+            let proxyJump = proxyJumpText.trimmingCharacters(in: .whitespacesAndNewlines)
+            saved.proxyJump = proxyJump.isEmpty ? nil : proxyJump
+            let extraOptions = sshExtraOptionsText.trimmingCharacters(in: .whitespacesAndNewlines)
+            saved.sshExtraOptions = extraOptions.isEmpty ? nil : extraOptions
+        } else {
+            saved.proxyJump = nil
+            saved.sshExtraOptions = nil
+        }
 
         if saved.sshAuthMethod == .password, !saved.password.isEmpty {
             _ = SSHAuthHelper.writeAskpassScript(password: saved.password, profileID: saved.id)

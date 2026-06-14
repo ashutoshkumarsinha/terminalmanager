@@ -37,22 +37,24 @@ Equivalent: `bash scripts/run-app.sh`. For release builds and DMG packaging, run
 
 ```
 ┌─────────────────────────────────────────────────────────┐
+│ [Quick Connect — optional]                              │
 │ [Command bar — optional]                                │
 ├─────────────────────────────────────────────────────────┤
-│ Tab │ Tab │ Tab │ +                                      │
+│ ● Tab │ Tab │ Tab │ +                                   │
 ├──────────┬──────────────────────────────────────────────┤
-│ Sessions │  Terminal workspace (single or split panes)  │
+│ Search   │  Terminal workspace (single or split panes)  │
+│ Sessions │  [Find bar when ⌘F]                          │
 │ sidebar  │                                              │
-│          │                                              │
 └──────────┴──────────────────────────────────────────────┘
 ```
 
 | Area | Purpose |
 |------|---------|
-| **Sidebar** | Saved sessions, folders, and groups |
-| **Tab strip** | Open sessions; click to switch |
+| **Quick Connect** | Connect immediately via URI or `user@host` without saving a profile |
+| **Sidebar** | Saved sessions, folders, and groups; search filters the tree |
+| **Tab strip** | Open sessions; colored dot shows idle / running / exited |
 | **Workspace** | Embedded terminal for the selected tab (or its split panes) |
-| **Command bar** | Send a command to the selected tab or all tabs |
+| **Command bar** | Send a command to the selected tab or all tabs; history and presets |
 
 ---
 
@@ -72,6 +74,39 @@ Equivalent: `bash scripts/run-app.sh`. For release builds and DMG packaging, run
 | Inside a folder | Right-click the folder → **New Session** — the folder expands so the new session is visible |
 
 Fill in name, host, protocol, credentials, and optional init script, then click **Save**.
+
+**SSH extras (optional):**
+
+| Field | Purpose |
+|-------|---------|
+| **ProxyJump (-J)** | Bastion host for `ssh -J` |
+| **SSH extra options** | Additional flags (e.g. `-o IdentityFile=~/.ssh/work`) |
+| **Tag color** | Sidebar color dot (`#FF5500`, `green`, etc.) |
+
+**Password auth** — passwords are stored in the **macOS Keychain**, not in `sessions.json`. Existing v1 passwords migrate automatically on first load.
+
+### Quick Connect
+
+Use the bar at the top of the main window to connect without saving a profile:
+
+| Input | Example |
+|-------|---------|
+| URI | `ssh://admin@web01.example.com:22` |
+| Shorthand | `admin@web01` (defaults to SSH port 22) |
+
+Press **Connect** or **Return** to open a new tab.
+
+### Search the sidebar
+
+Type in the **Search sessions…** field above the tree. Matches name, host, protocol, and notes. Clear the field to show the full tree again.
+
+### Test connection
+
+Right-click a session → **Test Connection**. Runs a short non-interactive probe (SSH batch mode, etc.) and shows success or failure in an alert.
+
+### Duplicate to folder
+
+Right-click a session → **Duplicate to Folder** to copy the profile into another folder without leaving the original in place.
 
 ### Connection URIs
 
@@ -112,10 +147,13 @@ The editor parses the URI and fills protocol, host, port, and username.
 | Duplicate tab | ⌘D or **Session → Duplicate Tab** |
 | Rename tab | Double-click title, or right-click → **Rename…** |
 | Reorder tabs | Drag tab chips |
+| Tab status | Colored dot: gray idle, green running, red exited |
 | Detach tab | Right-click → **Detach Window** |
 | Reattach | **Reattach** button in detached window |
+| Find in scrollback | ⌘F — search bar above workspace |
+| Reconnect | When a session exits unexpectedly, choose **Reconnect** in the alert (if enabled in Settings) |
 
-Background tabs stay in memory but only the **visible** tab (and its split panes) mount a terminal view, which keeps the app responsive when many tabs are open.
+Detached windows remember their size and position per tab.
 
 ---
 
@@ -131,9 +169,11 @@ Split applies only to the **currently selected tab** and does not add entries to
 **What happens:**
 
 - Your **current session stays running** in one pane
-- **One new local shell** opens in the other pane
+- **A second connection** to the same profile opens in the other pane (same protocol and credentials)
 - Switch to another tab → that tab shows full-screen (or its own split if you split it earlier)
 - Switch back → your split layout returns
+
+Background tabs stay in memory but only the **visible** tab (and its split panes) mount a terminal view, which keeps the app responsive when many tabs are open.
 
 Close a pane with **⌘W** while it is focused; when only one pane remains, the split ends.
 
@@ -149,7 +189,11 @@ Groups save a set of open tabs and their split layout so you can reopen them tog
 2. Right-click the sidebar → **Save Tabs as Group…**, or **Edit → Create Group from Open Tabs…**
 3. Enter a group name → **Save**
 
-Groups are created from open tabs only (there is no empty group).
+Groups are created from open tabs, or as an **empty group** via the sidebar context menu (**New Empty Group**). Drag sessions onto an empty group to add members.
+
+### Update group layout
+
+With a group’s tabs open and arranged (including splits), right-click the group → **Update Layout from Open Tabs** to refresh the saved split layout.
 
 ### Open a group
 
@@ -191,6 +235,10 @@ Send the same command to one or all embedded tabs.
 
 Each non-empty line is sent as a separate command followed by Enter.
 
+**Command history** — use the ▼ control or arrow keys in the command field to recall recent broadcasts.
+
+**Presets** — choose a named preset from the menu to fill the command field with a saved snippet (configured in `config.toml` or Settings).
+
 Disable the feature with `show_command_bar = false` or `broadcast_enabled = false` in `config.toml`.
 
 ---
@@ -203,12 +251,25 @@ For SSH sessions, enable **Enable SFTP** in the session editor. An arrow icon ap
 |--------|--------|
 | Click arrow icon | Opens **Session Name (SFTP)** in a new embedded tab running `sftp` |
 | Right-click → **SFTP** | Same |
+| Right-click → **Browse SFTP…** | Opens a sheet listing remote directories (`ls` over SFTP) |
 
 SFTP uses the same SSH credentials (agent, password, or private key) as the parent session.
 
 ---
 
-## 8. Menus
+## 8. URL scheme & automation
+
+Open sessions from Shortcuts, scripts, or links:
+
+```
+terminalmanager://open?uri=ssh://user@host:22
+```
+
+Register the app once, then macOS routes `terminalmanager://` URLs to Terminal Manager.
+
+---
+
+## 9. Menus
 
 ### File
 
@@ -252,20 +313,28 @@ SFTP uses the same SSH credentials (agent, password, or private key) as the pare
 
 ---
 
-## 9. Settings
+## 10. Settings
 
 Open **Terminal Manager → Settings** (⌘,):
 
 | Setting | Purpose |
 |---------|---------|
 | Show Session Sidebar | Default sidebar visibility |
+| Terminal font / size / theme | Embedded terminal appearance |
+| Restore tabs on launch | Reopen tabs from last session |
+| Auto-reconnect | Prompt when a session exits unexpectedly |
+| Log terminal I/O | Write shell traffic to `terminal-io-*.log` |
+| Terminal I/O max MB | Rotate I/O log when it exceeds this size |
 | Sessions JSON file | Path to `sessions.json` (relative or absolute) |
+| Sync path | Optional second location for `sessions.json` (e.g. iCloud) |
 | Log level | App log verbosity (`debug`, `info`, `warning`, `error`) |
 | Export / Import Sessions JSON | Backup or restore the session tree |
+| Redact secrets on export | Omit passwords and keys from exported JSON |
+| Encrypted backup | Export sessions + config as AES-GCM bundle (passphrase) |
 
 ---
 
-## 10. Configuration Files
+## 11. Configuration Files
 
 Default location: `~/.terminalmanager/`
 
@@ -274,6 +343,7 @@ Default location: `~/.terminalmanager/`
 | `config.toml` | App preferences (edit directly, via Settings, or View menu) |
 | `sessions.json` | Sessions, folders, groups |
 | `window-state.json` | Window size/position (automatic) |
+| `launch-state.json` | Open tabs for restore-on-launch (automatic) |
 | `logs/terminalmanager-YYYY-MM-DD.log` | App events (tabs opened, errors, config) |
 | `logs/terminal-io-YYYY-MM-DD.log` | Terminal input and shell output per session |
 
@@ -294,6 +364,13 @@ single_instance = true      # one app instance per config dir
 start_maximized = true
 restore_position = true
 
+[terminal]
+font_name = "Menlo"
+font_size = 12
+theme = "system"            # system | light | dark
+restore_tabs_on_launch = true
+auto_reconnect = true
+
 [ui]
 show_sidebar = true
 show_command_bar = true
@@ -301,15 +378,21 @@ show_tooltips = true
 broadcast_enabled = true
 confirm_on_exit = true      # ask before quitting
 
+[sessions]
+file = "sessions.json"
+# sync_path = "~/Library/Mobile Documents/com~apple~CloudDocs/terminalmanager/sessions.json"
+
 [logging]
 level = "info"              # debug | info | warning | error
+log_terminal_io = true
+terminal_io_max_mb = 50
 ```
 
 See `config.toml.example` in the project for the full list.
 
 ---
 
-## 11. Keyboard Shortcuts
+## 12. Keyboard Shortcuts
 
 | Action | Default |
 |--------|---------|
@@ -319,13 +402,14 @@ See `config.toml.example` in the project for the full list.
 | Previous tab | ⌘⇧[ |
 | Duplicate tab | ⌘D |
 | Focus command bar | ⌘⇧L |
+| Find in terminal | ⌘F |
 | Open User Guide | ⌘? |
 
 Customize tab shortcuts via `[[shortcuts]]` entries in `config.toml`.
 
 ---
 
-## 12. Protocols & Auth
+## 13. Protocols & Auth
 
 | Protocol | Notes |
 |----------|-------|
@@ -339,11 +423,13 @@ Customize tab shortcuts via `[[shortcuts]]` entries in `config.toml`.
 
 **Startup script path** — optional file whose lines are appended to the init script.
 
-**Password auth** — Terminal Manager writes a temporary askpass helper under `~/.terminalmanager/` when you save a password-based SSH session.
+**Password auth** — stored in Keychain; legacy askpass scripts under `~/.terminalmanager/` are removed on save.
+
+**ProxyJump** — set a bastion host in the session editor for `ssh -J`.
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 | Problem | Suggestion |
 |---------|------------|

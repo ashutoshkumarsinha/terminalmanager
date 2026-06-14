@@ -1,6 +1,6 @@
 # High-Level Design: Terminal Manager
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Platform:** macOS 14+, Swift 5.9, SwiftUI + AppKit
 
 ---
@@ -95,7 +95,11 @@ Key operations: open/close tab, per-tab split, open/save group, tab reorder, boo
 | `GroupLayoutMapper` | Convert `SplitLayoutNode` ↔ `GroupLayoutNode` |
 | `WindowStateManager` | Persist/restore window frame and zoom |
 | `SingleInstanceManager` | File lock + distributed notification for single instance |
-| `SSHAuthHelper` | Askpass scripts for password auth |
+| `SSHAuthHelper` | Keychain passwords + askpass for embedded PTY |
+| `KeychainSecretStore` | macOS Keychain read/write for session passwords |
+| `LaunchStateStore` | Optional tab restore snapshot |
+| `SessionTreeFilter` | Sidebar search filter |
+| `EncryptedBackup` | AES-GCM backup bundles |
 | `AppLogger` | File logging for app events |
 | `TerminalIOLogger` | Separate log for terminal input/output |
 | `UserGuideLoader` | Load bundled or source `USER_GUIDE.md` for Help |
@@ -186,7 +190,7 @@ flowchart LR
 **Workspace rendering (`SplitPaneView`):**
 
 - Resolve layout via `splitLayout(containing: selectedTabID)`
-- Mount all tabs in `tabs[]` but only show tabs in the active layout (others hidden, not destroyed)
+- Mount terminal views only for tabs visible in the active layout (background tabs keep PTY but no live NSView until selected)
 - Resize PTY when pane frames change
 
 ---
@@ -260,8 +264,9 @@ sequenceDiagram
     View->>Store: remove(tabID) on tab close
 ```
 
-- One PTY process per tab ID
-- Tabs stay mounted during splits; visibility toggles via layout
+- One PTY process per tab ID once started
+- Process starts when tab becomes active and has non-zero bounds (`EmbeddedTerminalView.startIfNeeded`)
+- PTY and SwiftTerm scrollback remain allocated until tab close or future hibernation (see §13)
 - Environment variables inherited from parent process with session overrides
 
 ---
@@ -271,17 +276,23 @@ sequenceDiagram
 | Area | Model |
 |------|--------|
 | UI + AppState | `@MainActor` |
-| Config I/O | Main thread (sync file ops) |
+| Config I/O | Main thread today; **planned:** off-main encode/write ([SPEC §9.4 PF-03](SPEC.md#94-phase-30--performance-quick-wins-v30)) |
 | PTY I/O | SwiftTerm background threads |
-| Logging | Thread-safe `AppLogger` |
+| App logging | Thread-safe `AppLogger` |
+| Terminal I/O log | Dedicated utility queue (`TerminalIOLogger`); batched output flush (~50 ms) |
+| Encrypted backup | PBKDF2 + AES-GCM on caller thread today; **planned:** async with progress ([SPEC §9.7 PF-33](SPEC.md#97-phase-33--startup--io-v33)) |
+
+**Invalidation today:** `ConfigStore.objectWillChange` forwards to `AppState.objectWillChange`, which can redraw the full window. Phase 3.0 (PF-05, TE-02) narrows this to granular published slices.
 
 ---
 
 ## 9. Security Considerations
 
-- Passwords stored in `sessions.json` (plain text); file permissions rely on OS user home directory
-- SSH askpass scripts written to config directory with restrictive permissions
+- SSH passwords stored in **macOS Keychain** (`KeychainSecretStore`); migrated from legacy plain text in `sessions.json` on load
+- Temporary SSH askpass scripts may still be written for embedded PTY password auth; restrictive permissions (`0o700`)
+- Encrypted backup bundles use AES-GCM with passphrase-derived keys (PBKDF2)
 - No network listeners; outbound connections only via user-initiated sessions
+- Session notes may still contain secrets in plain text ([SPEC §9.8 EN-08](SPEC.md#98-phase-40--product-enhancements-post-performance))
 
 ---
 
@@ -344,7 +355,77 @@ The Makefile wraps these steps (`make package-release`, `make dmg`). App bundle 
 
 ---
 
-## 13. Related Documents
+## 13. Performance & scale
+
+**Version 2.x baseline** and **Phase 3 plan** are defined in [SPEC §9](SPEC.md#9-phase-3--performance--scale). This section summarizes architecture implications.
+
+### 13.1 Main-thread hot path
+
+```mermaid
+flowchart TB
+    subgraph hotpath [Main thread]
+        UI[SwiftUI views]
+        AS[AppState]
+        CS[ConfigStore]
+        TS[TerminalSessionStore]
+        UI --> AS
+        AS --> CS
+        AS --> TS
+    end
+    subgraph background [Background]
+        IOLog[TerminalIOLogger queue]
+        PTY[SwiftTerm PTY threads]
+    end
+    TS --> PTY
+    TS --> IOLog
+```
+
+### 13.2 Optimizations already in place
+
+| Mechanism | Location | Effect |
+|-----------|----------|--------|
+| Visible-tab-only terminal views | `MainWindowView` / `SplitPaneView` | Avoids mounting NSViews for every open tab |
+| Debounced session save | `ConfigStore.scheduleSaveSessions` (250 ms) | Coalesces rapid tree edits |
+| Buffered terminal I/O log | `TerminalIOLogger` | Reduces syscall churn; rotation by `terminal_io_max_mb` |
+| Release LTO + strip | `Package.swift` | Smaller binary |
+
+### 13.3 Known bottlenecks (Phase 3 targets)
+
+| Bottleneck | Planned mitigation | SPEC ID |
+|------------|-------------------|---------|
+| Synchronous `launch-state.json` on tab ops | Debounced write via `PersistenceCoordinator` | PF-01 |
+| Full-tree sidebar filter per keystroke | Debounce + search index | PF-02, PF-21 |
+| Main-thread `sessions.json` encode | Off-main write | PF-03 |
+| Recursive tree lookup | UUID index | PF-04, TE-07 |
+| Broad `objectWillChange` fan-out | Split `AppState` | PF-05, TE-02 |
+| Unbounded scrollback per tab | `max_scrollback_lines` | PF-06 |
+| PTY alive for all started tabs | Tab hibernation + lazy start | PF-10, PF-11, TE-06 |
+
+### 13.4 Planned state decomposition (TE-02)
+
+```mermaid
+flowchart LR
+    AS[AppState today] --> TWS[TabWorkspaceState]
+    AS --> SLS[SessionLibraryState]
+    AS --> SS[SettingsState]
+    TWS --> TS[TerminalSessionStore]
+    SLS --> CS[ConfigStore]
+```
+
+| Model | Owns |
+|-------|------|
+| `TabWorkspaceState` | `tabs`, `selectedTabID`, `splitLayouts`, detached tabs, reconnect |
+| `SessionLibraryState` | `sessionTree`, search index, selection |
+| `SettingsState` | `AppSettings`, appearance, logging toggles |
+| `PersistenceCoordinator` | Debounced/off-main writes for sessions, launch state, window state |
+
+### 13.5 Measurement
+
+Before Phase 3.0, record baselines with Instruments (Time Profiler, Allocations, File Activity) using a 20-tab workload. Targets: see [SPEC §9.10](SPEC.md#910-measurement-targets).
+
+---
+
+## 14. Related Documents
 
 - [Functional Specification](SPEC.md)
 - [User Guide](USER_GUIDE.md)

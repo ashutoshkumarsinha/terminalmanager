@@ -9,9 +9,14 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     let isActive: Bool
     let terminalStore: TerminalSessionStore
     let onSendInput: ((@escaping (String) -> Void) -> Void)?
+    let onSessionStateChange: ((TabSessionState, Int32?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(tabID: tabID, terminalStore: terminalStore)
+        Coordinator(
+            tabID: tabID,
+            terminalStore: terminalStore,
+            onSessionStateChange: onSessionStateChange
+        )
     }
 
     func makeNSView(context: Context) -> TerminalContainerView {
@@ -47,9 +52,10 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator {
+    final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         let tabID: UUID
         let terminalStore: TerminalSessionStore
+        let onSessionStateChange: ((TabSessionState, Int32?) -> Void)?
         weak var container: TerminalContainerView?
         var profile: SessionProfile?
         var overrideCommand: ConnectionCommand?
@@ -58,9 +64,14 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         private var didRegisterHandler = false
         private var pendingStart = false
 
-        init(tabID: UUID, terminalStore: TerminalSessionStore) {
+        init(
+            tabID: UUID,
+            terminalStore: TerminalSessionStore,
+            onSessionStateChange: ((TabSessionState, Int32?) -> Void)?
+        ) {
             self.tabID = tabID
             self.terminalStore = terminalStore
+            self.onSessionStateChange = onSessionStateChange
         }
 
         func attach(container: TerminalContainerView, profile: SessionProfile, overrideCommand: ConnectionCommand?) {
@@ -86,7 +97,10 @@ struct EmbeddedTerminalView: NSViewRepresentable {
                 container.terminal = terminal
                 container.addSubview(terminal)
             }
-            terminal.autoresizingMask = [.width, .height]
+            terminal.processDelegate = self
+            terminal.onProcessTerminated = { [weak self] exitCode in
+                self?.onSessionStateChange?(.exited, exitCode)
+            }
             terminal.frame = container.bounds
         }
 
@@ -110,6 +124,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
                 currentDirectory: command.workingDirectory
             )
             syncTerminalSize(terminal)
+            onSessionStateChange?(.running, nil)
 
             let lines = command.startupCommands
             guard !lines.isEmpty else { return }
@@ -122,12 +137,22 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         }
 
         func detachFromContainer() {
+            container?.terminal?.processDelegate = nil
+            container?.terminal?.onProcessTerminated = nil
             container?.terminal?.removeFromSuperview()
             container?.terminal = nil
             container?.coordinator = nil
             didRegisterHandler = false
             pendingStart = false
         }
+
+        func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
+
+        func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
+
+        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+
+        func processTerminated(source: TerminalView, exitCode: Int32?) {}
 
         private func scheduleRetry() {
             guard !pendingStart else { return }
@@ -146,7 +171,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             terminal.process.send(data: slice)
         }
 
-        private func syncTerminalSize(_ terminal: LocalProcessTerminalView) {
+        private func syncTerminalSize(_ terminal: LoggedLocalProcessTerminalView) {
             DispatchQueue.main.async {
                 guard terminal.process.running else { return }
                 terminal.sizeChanged(
@@ -161,7 +186,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
 final class TerminalContainerView: NSView {
     weak var coordinator: EmbeddedTerminalView.Coordinator?
-    var terminal: LocalProcessTerminalView?
+    var terminal: LoggedLocalProcessTerminalView?
     private var lastReportedCols = 0
     private var lastReportedRows = 0
     private var resizeWorkItem: DispatchWorkItem?
@@ -222,6 +247,9 @@ struct TerminalHostView: View {
                     terminalStore: appState.terminalStore,
                     onSendInput: { handler in
                         appState.broadcastManager.register(tabID: tab.id, handler: handler)
+                    },
+                    onSessionStateChange: { state, exitCode in
+                        appState.updateTabSessionState(tabID: tab.id, state: state, exitCode: exitCode)
                     }
                 )
             } else {

@@ -5,6 +5,35 @@ enum SSHAuthHelper {
         FileLocations.configDirectory.appendingPathComponent("askpass-\(profileID.uuidString).sh")
     }
 
+    /// Returns the password from the profile or Keychain.
+    static func resolvedPassword(for profile: SessionProfile) -> String? {
+        if !profile.password.isEmpty {
+            return profile.password
+        }
+        return KeychainSecretStore.load(for: profile.id)
+    }
+
+    /// Stores password in Keychain and clears any legacy askpass script.
+    static func storePassword(_ password: String, for profileID: UUID) {
+        do {
+            try KeychainSecretStore.store(password: password, for: profileID)
+            removeLegacyAskpassScript(for: profileID)
+        } catch {
+            AppLogger.shared.error("Failed to store password in Keychain: \(error)")
+        }
+    }
+
+    /// Migrates a plain-text password from sessions JSON into Keychain.
+    @discardableResult
+    static func migratePasswordToKeychain(for profile: inout SessionProfile) -> Bool {
+        guard profile.sshAuthMethod == .password, !profile.password.isEmpty else {
+            return false
+        }
+        storePassword(profile.password, for: profile.id)
+        profile.password = ""
+        return true
+    }
+
     @discardableResult
     static func writeAskpassScript(password: String, profileID: UUID) -> URL? {
         guard !password.isEmpty else { return nil }
@@ -45,5 +74,10 @@ enum SSHAuthHelper {
             return nil
         }
         return (path as NSString).expandingTildeInPath
+    }
+
+    private static func removeLegacyAskpassScript(for profileID: UUID) {
+        let url = askpassScriptURL(for: profileID)
+        try? FileManager.default.removeItem(at: url)
     }
 }
