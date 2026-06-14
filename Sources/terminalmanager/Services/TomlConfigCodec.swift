@@ -98,6 +98,11 @@ enum TomlConfigCodec {
             var sessionsSaveOffMain: Bool?
             var hibernateInactiveTabsMinutes: Int?
             var terminalIOMetadataOnly: Bool?
+            var deferSessionsLoad: Bool?
+            var staggerTabRestore: Bool?
+            var staggerTabRestoreBatchSize: Int?
+            var findDebounceMs: Int?
+            var broadcastBatchDelayMs: Int?
 
             enum CodingKeys: String, CodingKey {
                 case launchStateDebounceMs = "launch_state_debounce_ms"
@@ -106,6 +111,11 @@ enum TomlConfigCodec {
                 case sessionsSaveOffMain = "sessions_save_off_main"
                 case hibernateInactiveTabsMinutes = "hibernate_inactive_tabs_minutes"
                 case terminalIOMetadataOnly = "terminal_io_metadata_only"
+                case deferSessionsLoad = "defer_sessions_load"
+                case staggerTabRestore = "stagger_tab_restore"
+                case staggerTabRestoreBatchSize = "stagger_tab_restore_batch_size"
+                case findDebounceMs = "find_debounce_ms"
+                case broadcastBatchDelayMs = "broadcast_batch_delay_ms"
             }
         }
 
@@ -198,7 +208,12 @@ enum TomlConfigCodec {
             maxScrollbackLines: performance?.maxScrollbackLines ?? defaults.maxScrollbackLines,
             sessionsSaveOffMain: performance?.sessionsSaveOffMain ?? defaults.sessionsSaveOffMain,
             hibernateInactiveTabsMinutes: performance?.hibernateInactiveTabsMinutes ?? defaults.hibernateInactiveTabsMinutes,
-            terminalIOMetadataOnly: performance?.terminalIOMetadataOnly ?? defaults.terminalIOMetadataOnly
+            terminalIOMetadataOnly: performance?.terminalIOMetadataOnly ?? defaults.terminalIOMetadataOnly,
+            deferSessionsLoad: performance?.deferSessionsLoad ?? defaults.deferSessionsLoad,
+            staggerTabRestore: performance?.staggerTabRestore ?? defaults.staggerTabRestore,
+            staggerTabRestoreBatchSize: performance?.staggerTabRestoreBatchSize ?? defaults.staggerTabRestoreBatchSize,
+            findDebounceMs: performance?.findDebounceMs ?? defaults.findDebounceMs,
+            broadcastBatchDelayMs: performance?.broadcastBatchDelayMs ?? defaults.broadcastBatchDelayMs
         )
     }
 
@@ -275,14 +290,29 @@ enum TomlConfigCodec {
             hibernateInactiveTabsMinutes: settings.hibernateInactiveTabsMinutes == defaults.hibernateInactiveTabsMinutes
                 ? nil : settings.hibernateInactiveTabsMinutes,
             terminalIOMetadataOnly: settings.terminalIOMetadataOnly == defaults.terminalIOMetadataOnly
-                ? nil : settings.terminalIOMetadataOnly
+                ? nil : settings.terminalIOMetadataOnly,
+            deferSessionsLoad: settings.deferSessionsLoad == defaults.deferSessionsLoad
+                ? nil : settings.deferSessionsLoad,
+            staggerTabRestore: settings.staggerTabRestore == defaults.staggerTabRestore
+                ? nil : settings.staggerTabRestore,
+            staggerTabRestoreBatchSize: settings.staggerTabRestoreBatchSize == defaults.staggerTabRestoreBatchSize
+                ? nil : settings.staggerTabRestoreBatchSize,
+            findDebounceMs: settings.findDebounceMs == defaults.findDebounceMs
+                ? nil : settings.findDebounceMs,
+            broadcastBatchDelayMs: settings.broadcastBatchDelayMs == defaults.broadcastBatchDelayMs
+                ? nil : settings.broadcastBatchDelayMs
         )
         if table.launchStateDebounceMs == nil,
            table.sidebarSearchDebounceMs == nil,
            table.maxScrollbackLines == nil,
            table.sessionsSaveOffMain == nil,
            table.hibernateInactiveTabsMinutes == nil,
-           table.terminalIOMetadataOnly == nil {
+           table.terminalIOMetadataOnly == nil,
+           table.deferSessionsLoad == nil,
+           table.staggerTabRestore == nil,
+           table.staggerTabRestoreBatchSize == nil,
+           table.findDebounceMs == nil,
+           table.broadcastBatchDelayMs == nil {
             return nil
         }
         return table

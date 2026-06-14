@@ -4,10 +4,23 @@ import Foundation
 final class ConfigStore: ObservableObject {
     @Published private(set) var settings: AppSettings = .defaults
     @Published private(set) var sessionTree: [SessionTreeItem] = [] {
-        didSet { treeIndex.rebuild(from: sessionTree) }
+        didSet {
+            treeIndex.rebuild(from: sessionTree)
+            searchIndex.rebuild(from: sessionTree)
+        }
     }
+    @Published private(set) var sessionsAreLoaded = false
+    @Published private(set) var sessionsLoadInProgress = false
+    @Published private(set) var keychainMigrationProgress: (current: Int, total: Int)?
+    @Published var backgroundTaskMessage: String?
+
+    var onSessionsLoaded: (() -> Void)?
 
     private var treeIndex = SessionTreeIndex()
+    private var searchIndex = SessionTreeSearchIndex()
+    private var sessionsLoaded = false
+    private let syncWatcher = SessionsSyncWatcher()
+    private var isApplyingExternalSync = false
 
     private let jsonEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -25,7 +38,26 @@ final class ConfigStore: ObservableObject {
 
     func load() {
         loadSettings()
-        loadSessions()
+        if !settings.deferSessionsLoad {
+            loadSessionsIfNeeded()
+        }
+    }
+
+    func loadSessionsIfNeeded() {
+        guard !sessionsLoaded else { return }
+        sessionsLoaded = true
+        sessionsLoadInProgress = true
+        Task {
+            await loadSessionsAsync()
+        }
+    }
+
+    var sidebarSearchIndex: SessionTreeSearchIndex {
+        searchIndex
+    }
+
+    func filteredSessionTree(query: String) -> [SessionTreeItem] {
+        SessionTreeFilter.filter(sessionTree, query: query, searchIndex: searchIndex)
     }
 
     func saveSettings() {
@@ -53,10 +85,38 @@ final class ConfigStore: ObservableObject {
             debounceMs: 250,
             offMain: settings.sessionsSaveOffMain
         )
+        mirrorSessionsToSyncPathIfNeeded()
     }
 
     func flushPendingSaves() {
         saveSessions()
+    }
+
+    func exportEncryptedBackup(to url: URL, passphrase: String) async throws {
+        backgroundTaskMessage = "Exporting encrypted backup…"
+        let settingsSnapshot = settings
+        let treeSnapshot = sessionTreeForPersistence()
+        defer { backgroundTaskMessage = nil }
+        try await Task.detached(priority: .userInitiated) {
+            try EncryptedBackup.exportEncrypted(
+                settings: settingsSnapshot,
+                sessionTree: treeSnapshot,
+                passphrase: passphrase,
+                to: url
+            )
+        }.value
+    }
+
+    func importEncryptedBackup(from url: URL, passphrase: String) async throws {
+        backgroundTaskMessage = "Importing encrypted backup…"
+        defer { backgroundTaskMessage = nil }
+        let imported = try await Task.detached(priority: .userInitiated) {
+            try EncryptedBackup.importEncrypted(from: url, passphrase: passphrase)
+        }.value
+        settings = imported.settings
+        saveSettings()
+        sessionTree = imported.sessionTree
+        scheduleSaveSessions()
     }
 
     func updateSettings(_ newSettings: AppSettings) {
@@ -65,8 +125,11 @@ final class ConfigStore: ObservableObject {
         saveSettings()
         applyLoggerSettings()
         if sessionsPathChanged {
-            loadSessions()
+            sessionsLoaded = false
+            sessionsAreLoaded = false
+            loadSessionsIfNeeded()
         }
+        configureSyncWatcher()
     }
 
     func updateSessionTree(_ tree: [SessionTreeItem]) {
@@ -745,25 +808,161 @@ final class ConfigStore: ObservableObject {
         )
     }
 
-    private func loadSessions() {
+    private func loadSessionsAsync() async {
         let url = sessionsURL
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            sessionTree = sampleSessionTree()
+        let syncURL = resolvedSyncURL()
+        let hadLocalFile = FileManager.default.fileExists(atPath: url.path)
+        let hadSyncFile = syncURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+
+        let loadedTree: [SessionTreeItem]
+        if let syncURL, hadSyncFile {
+            if let syncTree = await decodeSessions(from: syncURL) {
+                loadedTree = syncTree
+            } else if let localTree = await decodeSessions(from: url) {
+                loadedTree = localTree
+            } else {
+                loadedTree = sampleSessionTree()
+            }
+        } else if hadLocalFile {
+            loadedTree = await decodeSessions(from: url) ?? sampleSessionTree()
+        } else {
+            loadedTree = sampleSessionTree()
+        }
+
+        let (tree, migrated) = await migratePasswordsToKeychainAsync(in: loadedTree)
+        sessionTree = tree
+        sessionsAreLoaded = true
+        sessionsLoadInProgress = false
+        if migrated || (!hadLocalFile && !hadSyncFile) {
             scheduleSaveSessions()
+        }
+        configureSyncWatcher()
+        onSessionsLoaded?()
+    }
+
+    private func decodeSessions(from url: URL) async -> [SessionTreeItem]? {
+        await Task.detached(priority: .userInitiated) { () -> [SessionTreeItem]? in
+            guard let data = try? Data(contentsOf: url),
+                  let config = try? JSONDecoder().decode(SessionConfiguration.self, from: data) else {
+                return nil
+            }
+            return config.sessionTree
+        }.value
+    }
+
+    private func migratePasswordsToKeychainAsync(in items: [SessionTreeItem]) async -> ([SessionTreeItem], Bool) {
+        let total = countSessions(in: items)
+        guard total > 25 else {
+            return migratePasswordsToKeychain(in: items)
+        }
+
+        var migrated = false
+        var current = 0
+        keychainMigrationProgress = (0, total)
+        let tree = await migratePasswordsIncremental(items) { [self] didMigrate in
+            if didMigrate { migrated = true }
+            current += 1
+            self.keychainMigrationProgress = (current, total)
+            if current % 10 == 0 {
+                await Task.yield()
+            }
+        }
+        keychainMigrationProgress = nil
+        return (tree, migrated)
+    }
+
+    private func migratePasswordsIncremental(
+        _ items: [SessionTreeItem],
+        onEach: @escaping (Bool) async -> Void
+    ) async -> [SessionTreeItem] {
+        var result: [SessionTreeItem] = []
+        for item in items {
+            switch item {
+            case .session(var profile):
+                let didMigrate = SSHAuthHelper.migratePasswordToKeychain(for: &profile)
+                await onEach(didMigrate)
+                result.append(.session(profile))
+            case .folder(var folder):
+                folder.children = await migratePasswordsIncremental(folder.children, onEach: onEach)
+                result.append(.folder(folder))
+            case .group:
+                result.append(item)
+            }
+        }
+        return result
+    }
+
+    private func countSessions(in items: [SessionTreeItem]) -> Int {
+        items.reduce(0) { count, item in
+            switch item {
+            case .session: count + 1
+            case .folder(let folder): count + countSessions(in: folder.children)
+            case .group: count
+            }
+        }
+    }
+
+    private func configureSyncWatcher() {
+        guard let syncURL = resolvedSyncURL() else {
+            syncWatcher.stop()
             return
         }
-        do {
-            let data = try Data(contentsOf: url)
-            let config = try jsonDecoder.decode(SessionConfiguration.self, from: data)
-            let (tree, migrated) = migratePasswordsToKeychain(in: config.sessionTree)
-            sessionTree = tree
-            if migrated {
-                scheduleSaveSessions()
-            }
-        } catch {
-            AppLogger.shared.error("Failed to load sessions JSON: \(error)")
-            sessionTree = sampleSessionTree()
+        syncWatcher.start(watchURL: syncURL) { [weak self] in
+            self?.handleExternalSyncChange(at: syncURL)
         }
+    }
+
+    private func handleExternalSyncChange(at syncURL: URL) {
+        guard !isApplyingExternalSync else { return }
+        isApplyingExternalSync = true
+        defer { isApplyingExternalSync = false }
+
+        let backupURL = sessionsURL.deletingLastPathComponent()
+            .appendingPathComponent("sessions.conflict-\(Int(Date().timeIntervalSince1970)).json")
+        if FileManager.default.fileExists(atPath: sessionsURL.path) {
+            try? FileManager.default.copyItem(at: sessionsURL, to: backupURL)
+            AppLogger.shared.info("Backed up local sessions before sync reload: \(backupURL.lastPathComponent)")
+        }
+
+        Task {
+            if let tree = await decodeSessions(from: syncURL) {
+                sessionTree = tree
+                scheduleSaveSessions()
+                AppLogger.shared.info("Reloaded sessions from sync path")
+            }
+        }
+    }
+
+    private func mirrorSessionsToSyncPathIfNeeded() {
+        guard !isApplyingExternalSync, let syncURL = resolvedSyncURL() else { return }
+        let tree = sessionTreeForPersistence()
+        Task.detached(priority: .utility) {
+            do {
+                let config = SessionConfiguration(version: 1, sessionTree: tree)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(config)
+                try FileManager.default.createDirectory(
+                    at: syncURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: syncURL, options: .atomic)
+            } catch {
+                AppLogger.shared.error("Failed to mirror sessions to sync path: \(error)")
+            }
+        }
+    }
+
+    private func resolvedSyncURL() -> URL? {
+        guard let syncPath = settings.syncSessionsPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !syncPath.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: NSString(string: syncPath).expandingTildeInPath)
+    }
+
+    private func loadSessions() {
+        loadSessionsIfNeeded()
     }
 
     private func sessionTreeForPersistence() -> [SessionTreeItem] {

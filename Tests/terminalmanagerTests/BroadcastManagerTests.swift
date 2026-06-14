@@ -48,6 +48,22 @@ final class BroadcastManagerTests: XCTestCase {
         XCTAssertEqual(manager.commandHistory.first, "echo hi")
     }
 
+    func testSendSkipsIneligibleTabs() {
+        let manager = BroadcastManager()
+        let tabA = UUID()
+        let tabB = UUID()
+        var receivedA: [String] = []
+        var receivedB: [String] = []
+
+        manager.register(tabID: tabA) { receivedA.append($0) }
+        manager.register(tabID: tabB) { receivedB.append($0) }
+        manager.commandText = "echo hi"
+
+        manager.send(to: [tabA, tabB], eligibleTabIDs: [tabA])
+        XCTAssertEqual(receivedA, ["echo hi\n"])
+        XCTAssertTrue(receivedB.isEmpty)
+    }
+
     func testPresetsApplyAndRemove() {
         let manager = BroadcastManager()
         manager.setPreset("status", command: "systemctl status nginx")

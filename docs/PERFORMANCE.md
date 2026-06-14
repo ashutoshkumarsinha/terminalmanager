@@ -73,6 +73,40 @@ Optional local benchmark (not in CI): filter 500 synthetic sessions in < 100 ms 
 | PF-13 | Terminal I/O metadata-only mode (`terminal_io_metadata_only`) logs byte counts instead of content |
 | PF-14 | `cleanupTabResources` on tab close / detached window close (PTY + broadcast handlers + lifecycle tracking) |
 
+## Phase 3.2 optimizations (shipped)
+
+| ID | Change |
+|----|--------|
+| PF-20 | Flat sidebar rows (`SessionSidebarFlatRowBuilder`) — lazy `List` without nested `ForEach` |
+| PF-21 | `SessionTreeSearchIndex` — precomputed searchable text including notes |
+| PF-22 | Stable row IDs; folder/group expand state preserved across tree updates |
+| PF-23 | Debounced ⌘F input (`find_debounce_ms`); clears search state before next match |
+| PF-24 | Broadcast skips exited/hibernated tabs; optional inter-tab delay (`broadcast_batch_delay_ms`) |
+
+## Phase 3.3 optimizations (shipped)
+
+| ID | Change |
+|----|--------|
+| PF-30 | Defer `sessions.json` load until sidebar opens (`defer_sessions_load`) |
+| PF-31 | Staggered tab restore in batches (`stagger_tab_restore`, `stagger_tab_restore_batch_size`) |
+| PF-32 | Incremental async Keychain password migration with progress for large trees |
+| PF-33 | Encrypted backup export/import off main thread with progress overlay |
+| PF-34 | `sync_path` file watcher, conflict backup, and mirror on save |
+
+## Recorded baselines
+
+Captured on development hardware via unit perf smoke tests (`swift test`, SessionTreeFilterPerformanceTests):
+
+```
+Date: 2026-06-14
+Machine: arm64e macOS (local dev)
+macOS: 14+
+Tab count: n/a (unit smoke)
+Idle CPU (%): not profiled (use Instruments 20-tab workload)
+Memory (MB): not profiled (use Instruments with hibernation on)
+Sidebar filter 500 sessions: ~5 ms (unit smoke, arm64 dev machine)
+```
+
 Record baseline numbers in this file after profiling on your hardware:
 
 ```

@@ -449,7 +449,7 @@ flowchart LR
 
 | ID | Priority | Requirement | Status |
 |----|----------|-------------|--------|
-| AB-20 | P2 | Optional sync of `sessions.json` via iCloud Drive or user-chosen folder | ⚠️ `sync_path` config; manual copy |
+| AB-20 | P2 | Optional sync of `sessions.json` via iCloud Drive or user-chosen folder | ✅ watch + mirror + conflict backup |
 | AB-21 | P2 | Encrypted backup bundle (sessions + config) | ✅ |
 | SM-20 | P2 | Session templates (defaults for new SSH profiles) | ✅ |
 | SM-21 | P2 | Open session from Apple Shortcuts / `terminalmanager://` URL scheme | ✅ |
@@ -566,11 +566,11 @@ flowchart LR
 
 | ID | Priority | Requirement | Rationale |
 |----|----------|-------------|-----------|
-| PF-20 | P1 | Virtualized sidebar (flat visible rows or `NSOutlineView`) | Smooth scroll at 2k+ sessions |
-| PF-21 | P1 | Background search index (name, host, protocol, notes) | Sub-50 ms filter at 2k sessions |
-| PF-22 | P2 | Incremental tree diff; preserve expand/collapse | Less flicker on unrelated changes |
-| PF-23 | P2 | Debounced find; search from end; highlight cap | ⌘F on large scrollback |
-| PF-24 | P2 | Broadcast batching; skip exited tabs | Fleet ops to 30 tabs |
+| PF-20 | P1 | Virtualized sidebar (flat visible rows or `NSOutlineView`) | ✅ flat row model + `List` |
+| PF-21 | P1 | Background search index (name, host, protocol, notes) | ✅ `SessionTreeSearchIndex` |
+| PF-22 | P2 | Incremental tree diff; preserve expand/collapse | ✅ stable flat row IDs + expand state |
+| PF-23 | P2 | Debounced find; search from end; highlight cap | ✅ debounced find + clear-before-search |
+| PF-24 | P2 | Broadcast batching; skip exited tabs | ✅ eligible filter + batch delay |
 
 ---
 
@@ -578,11 +578,11 @@ flowchart LR
 
 | ID | Priority | Requirement | Rationale |
 |----|----------|-------------|-----------|
-| PF-30 | P1 | Fast cold launch — defer `sessions.json` until sidebar needed | Window visible quickly |
-| PF-31 | P1 | Staggered tab restore (batches with run-loop yield) | UI usable while many tabs restore |
-| PF-32 | P2 | Async Keychain migration with progress for large trees | No launch block |
-| PF-33 | P2 | Async encrypted backup with progress UI | No export freeze |
-| PF-34 | P2 | Active `sync_path` watch + conflict backup/merge | Real multi-Mac sync (extends AB-20) |
+| PF-30 | P1 | Fast cold launch — defer `sessions.json` until sidebar needed | ✅ `defer_sessions_load` |
+| PF-31 | P1 | Staggered tab restore (batches with run-loop yield) | ✅ `stagger_tab_restore` |
+| PF-32 | P2 | Async Keychain migration with progress for large trees | ✅ incremental migration |
+| PF-33 | P2 | Async encrypted backup with progress UI | ✅ off-main export/import + overlay |
+| PF-34 | P2 | Active `sync_path` watch + conflict backup/merge | ✅ `SessionsSyncWatcher` |
 
 ---
 

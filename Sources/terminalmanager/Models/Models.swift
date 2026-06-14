@@ -346,6 +346,11 @@ struct AppSettings: Equatable {
     var sessionsSaveOffMain: Bool
     var hibernateInactiveTabsMinutes: Int
     var terminalIOMetadataOnly: Bool
+    var deferSessionsLoad: Bool
+    var staggerTabRestore: Bool
+    var staggerTabRestoreBatchSize: Int
+    var findDebounceMs: Int
+    var broadcastBatchDelayMs: Int
 
     static let defaults = AppSettings(
         version: 1,
@@ -381,7 +386,12 @@ struct AppSettings: Equatable {
         maxScrollbackLines: 10_000,
         sessionsSaveOffMain: true,
         hibernateInactiveTabsMinutes: 30,
-        terminalIOMetadataOnly: false
+        terminalIOMetadataOnly: false,
+        deferSessionsLoad: true,
+        staggerTabRestore: true,
+        staggerTabRestoreBatchSize: 3,
+        findDebounceMs: 200,
+        broadcastBatchDelayMs: 15
     )
 }
 

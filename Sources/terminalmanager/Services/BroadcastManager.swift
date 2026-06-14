@@ -36,16 +36,29 @@ final class BroadcastManager: ObservableObject {
         sendHandlers[tabID] != nil
     }
 
-    func canSend(to tabIDs: [UUID], commandText: String? = nil) -> Bool {
+    func canSend(to tabIDs: [UUID], eligibleTabIDs: [UUID]? = nil, commandText: String? = nil) -> Bool {
         let text = commandText ?? self.commandText
-        return !resolvedTabIDs(from: tabIDs).isEmpty && Self.normalizedPayload(from: text) != nil
+        let resolved = resolvedTabIDs(from: tabIDs, eligibleTabIDs: eligibleTabIDs)
+        return !resolved.isEmpty && Self.normalizedPayload(from: text) != nil
     }
 
-    func send(to tabIDs: [UUID]) {
+    func send(to tabIDs: [UUID], eligibleTabIDs: [UUID]? = nil, batchDelayMs: Int = 0) {
         guard let payload = Self.normalizedPayload(from: commandText) else { return }
 
-        for tabID in resolvedTabIDs(from: tabIDs) {
-            sendHandlers[tabID]?(payload)
+        let targets = resolvedTabIDs(from: tabIDs, eligibleTabIDs: eligibleTabIDs)
+        guard !targets.isEmpty else { return }
+
+        if batchDelayMs > 0 && targets.count > 1 {
+            Task { @MainActor in
+                for tabID in targets {
+                    sendHandlers[tabID]?(payload)
+                    try? await Task.sleep(nanoseconds: UInt64(batchDelayMs) * 1_000_000)
+                }
+            }
+        } else {
+            for tabID in targets {
+                sendHandlers[tabID]?(payload)
+            }
         }
         recordCommand(commandText)
         commandText = ""
@@ -87,7 +100,12 @@ final class BroadcastManager: ObservableObject {
         return lines.map { String($0) + "\n" }.joined()
     }
 
-    func send(using tabIDs: [UUID], selectedTabID: UUID?) {
+    func send(
+        using tabIDs: [UUID],
+        selectedTabID: UUID?,
+        eligibleTabIDs: [UUID]? = nil,
+        batchDelayMs: Int = 0
+    ) {
         let targets: [UUID]
         switch target {
         case .selectedTab:
@@ -96,10 +114,13 @@ final class BroadcastManager: ObservableObject {
         case .allTabs:
             targets = tabIDs
         }
-        send(to: targets)
+        send(to: targets, eligibleTabIDs: eligibleTabIDs, batchDelayMs: batchDelayMs)
     }
 
-    private func resolvedTabIDs(from tabIDs: [UUID]) -> [UUID] {
-        tabIDs.filter { sendHandlers[$0] != nil }
+    private func resolvedTabIDs(from tabIDs: [UUID], eligibleTabIDs: [UUID]?) -> [UUID] {
+        let withHandlers = tabIDs.filter { sendHandlers[$0] != nil }
+        guard let eligibleTabIDs else { return withHandlers }
+        let eligible = Set(eligibleTabIDs)
+        return withHandlers.filter { eligible.contains($0) }
     }
 }

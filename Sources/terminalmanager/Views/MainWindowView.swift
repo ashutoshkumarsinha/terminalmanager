@@ -245,8 +245,16 @@ struct ShellCommandBar: View {
         }
     }
 
+    private var eligibleTabIDs: [UUID] {
+        appState.broadcastEligibleTabIDs(from: openTabIDs)
+    }
+
     private var canSend: Bool {
-        appState.broadcastManager.canSend(to: targetTabIDs, commandText: commandText)
+        appState.broadcastManager.canSend(
+            to: targetTabIDs,
+            eligibleTabIDs: eligibleTabIDs,
+            commandText: commandText
+        )
     }
 
     var body: some View {
@@ -342,7 +350,12 @@ struct ShellCommandBar: View {
 
     private func sendCommand() {
         appState.broadcastManager.commandText = commandText
-        appState.broadcastManager.send(using: openTabIDs, selectedTabID: appState.selectedTabID)
+        appState.broadcastManager.send(
+            using: openTabIDs,
+            selectedTabID: appState.selectedTabID,
+            eligibleTabIDs: eligibleTabIDs,
+            batchDelayMs: appState.settings.broadcastBatchDelayMs
+        )
         commandText = ""
     }
 }
@@ -577,10 +590,13 @@ struct TerminalFindBar: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($isFocused)
                 .onSubmit { appState.findNextInSelectedTab() }
+                .onChange(of: appState.findQuery) { _, newValue in
+                    appState.scheduleFindDebounce(from: newValue)
+                }
             Button("Previous") { appState.findPreviousInSelectedTab() }
-                .disabled(appState.findQuery.isEmpty)
+                .disabled(appState.debouncedFindQuery.isEmpty)
             Button("Next") { appState.findNextInSelectedTab() }
-                .disabled(appState.findQuery.isEmpty)
+                .disabled(appState.debouncedFindQuery.isEmpty)
             Button {
                 appState.showFindBar = false
             } label: {
@@ -902,6 +918,19 @@ struct MainWindowView: View {
                     TerminalFindBar()
                         .padding(.top, 8)
                 }
+
+                if let message = appState.configStore.backgroundTaskMessage {
+                    VStack {
+                        Spacer()
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(message)
+                        }
+                        .padding(12)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        .padding()
+                    }
+                }
             }
         }
         .navigationTitle(AppInfo.displayName)
@@ -911,6 +940,11 @@ struct MainWindowView: View {
         }
         .onChange(of: appState.settings.showSidebar) { _, showSidebar in
             columnVisibility = showSidebar ? .all : .detailOnly
+        }
+        .onChange(of: appState.pendingDetachedWindowTabID) { _, tabID in
+            guard let tabID else { return }
+            openWindow(id: "detached", value: tabID)
+            appState.pendingDetachedWindowTabID = nil
         }
         .onChange(of: appState.openUserGuide) { _, open in
             guard open else { return }

@@ -14,7 +14,11 @@ final class AppState: ObservableObject {
     @Published var openUserGuide = false
     @Published var showFindBar = false
     @Published var findQuery = ""
+    @Published private(set) var debouncedFindQuery = ""
     @Published var tabPendingReconnect: TerminalTab?
+    @Published var pendingDetachedWindowTabID: UUID?
+
+    private var findDebounceTask: Task<Void, Never>?
 
     let configStore: ConfigStore
     var broadcastManager: BroadcastManager
@@ -128,17 +132,33 @@ final class AppState: ObservableObject {
         )
         terminalStore.configureAppearance(from: settings)
         configureTabLifecycleMonitoring(from: settings)
+        configStore.onSessionsLoaded = { [weak self] in
+            self?.finishBootstrapAfterSessionsLoad()
+        }
         AppLogger.shared.info("Terminal Manager started (config: \(configStore.configTomlURL.path))")
         AppDelegate.shared?.onTerminateFlush = { [weak self] in
             self?.flushPersistedState()
         }
         if tabs.isEmpty {
             if settings.restoreTabsOnLaunch {
-                restoreTabsFromLaunchState()
+                if settings.deferSessionsLoad && !configStore.sessionsAreLoaded {
+                    pendingLaunchStateRestore = true
+                    configStore.loadSessionsIfNeeded()
+                } else {
+                    restoreTabsFromLaunchState()
+                }
             } else {
                 openLocalTab()
             }
         }
+    }
+
+    private var pendingLaunchStateRestore = false
+
+    private func finishBootstrapAfterSessionsLoad() {
+        guard pendingLaunchStateRestore, tabs.isEmpty else { return }
+        pendingLaunchStateRestore = false
+        restoreTabsFromLaunchState()
     }
 
     @discardableResult
@@ -346,6 +366,7 @@ final class AppState: ObservableObject {
         var tab = tabs.remove(at: index)
         tab.isDetached = true
         detachedTabs.append(tab)
+        pendingDetachedWindowTabID = tabID
         if let selectedTabID, stripTabID(for: selectedTabID) == tabID {
             self.selectedTabID = stripTabs.last?.id
         }
@@ -524,13 +545,40 @@ final class AppState: ObservableObject {
     }
 
     func findNextInSelectedTab() {
-        guard let tabID = selectedTabID, !findQuery.isEmpty else { return }
-        _ = terminalStore.findNext(tabID: tabID, query: findQuery)
+        guard let tabID = selectedTabID, !debouncedFindQuery.isEmpty else { return }
+        _ = terminalStore.findNext(tabID: tabID, query: debouncedFindQuery, searchFromEnd: true)
     }
 
     func findPreviousInSelectedTab() {
-        guard let tabID = selectedTabID, !findQuery.isEmpty else { return }
-        _ = terminalStore.findPrevious(tabID: tabID, query: findQuery)
+        guard let tabID = selectedTabID, !debouncedFindQuery.isEmpty else { return }
+        _ = terminalStore.findPrevious(tabID: tabID, query: debouncedFindQuery)
+    }
+
+    func scheduleFindDebounce(from query: String) {
+        findDebounceTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            debouncedFindQuery = ""
+            return
+        }
+        findDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(settings.findDebounceMs) * 1_000_000)
+            guard !Task.isCancelled else { return }
+            debouncedFindQuery = trimmed
+        }
+    }
+
+    func broadcastEligibleTabIDs(from tabIDs: [UUID]) -> [UUID] {
+        tabIDs.filter { tabID in
+            guard broadcastManager.hasHandler(for: tabID),
+                  let tab = (tabs + detachedTabs).first(where: { $0.id == tabID }) else {
+                return false
+            }
+            switch tab.sessionState {
+            case .running, .idle: return true
+            case .exited, .hibernated: return false
+            }
+        }
     }
 
     func saveLaunchState(immediate: Bool = false) {
@@ -587,33 +635,78 @@ final class AppState: ObservableObject {
             return
         }
 
-        var profileToTab: [UUID: UUID] = [:]
-        for profileID in state.tabProfileIDs {
-            guard let profile = configStore.sessionProfile(withID: profileID) else {
-                continue
+        if settings.staggerTabRestore {
+            Task { @MainActor in
+                await restoreTabsFromLaunchStateStaggered(state)
             }
-            let tabID = appendTab(from: profile, select: false)
-            profileToTab[profileID] = tabID
+        } else {
+            restoreTabsFromLaunchStateImmediate(state)
+        }
+    }
+
+    private func restoreTabsFromLaunchStateImmediate(_ state: LaunchState) {
+        var profileToTab = openRestoredTabs(profileIDs: state.tabProfileIDs, select: false)
+        guard !profileToTab.isEmpty else {
+            openLocalTab()
+            return
+        }
+        applyRestoredSplitLayouts(state: state, profileToTab: &profileToTab)
+        selectRestoredTab(state: state, profileToTab: profileToTab)
+        AppLogger.shared.info("Restored \(profileToTab.count) tab(s) from launch state")
+    }
+
+    private func restoreTabsFromLaunchStateStaggered(_ state: LaunchState) async {
+        var profileToTab: [UUID: UUID] = [:]
+        let profileIDs = state.tabProfileIDs
+        let batchSize = max(1, settings.staggerTabRestoreBatchSize)
+        var index = 0
+
+        while index < profileIDs.count {
+            let end = min(index + batchSize, profileIDs.count)
+            for profileID in profileIDs[index ..< end] {
+                guard let profile = configStore.sessionProfile(withID: profileID) else { continue }
+                let tabID = appendTab(from: profile, select: false)
+                profileToTab[profileID] = tabID
+            }
+            index = end
+            await Task.yield()
         }
 
-        if profileToTab.isEmpty {
+        guard !profileToTab.isEmpty else {
             openLocalTab()
             return
         }
 
+        applyRestoredSplitLayouts(state: state, profileToTab: &profileToTab)
+        selectRestoredTab(state: state, profileToTab: profileToTab)
+        AppLogger.shared.info("Restored \(profileToTab.count) tab(s) from launch state (staggered)")
+    }
+
+    private func openRestoredTabs(profileIDs: [UUID], select: Bool) -> [UUID: UUID] {
+        var profileToTab: [UUID: UUID] = [:]
+        for profileID in profileIDs {
+            guard let profile = configStore.sessionProfile(withID: profileID) else { continue }
+            let tabID = appendTab(from: profile, select: select)
+            profileToTab[profileID] = tabID
+        }
+        return profileToTab
+    }
+
+    private func applyRestoredSplitLayouts(state: LaunchState, profileToTab: inout [UUID: UUID]) {
         for (anchorProfileID, layout) in state.splitLayouts {
             guard let anchorTabID = profileToTab[anchorProfileID] else { continue }
             let restoredLayout = restoreSplitLayoutNode(layout, profileToTab: &profileToTab)
             setSplitLayout(restoredLayout, anchor: anchorTabID)
         }
+    }
 
+    private func selectRestoredTab(state: LaunchState, profileToTab: [UUID: UUID]) {
         if let selectedProfileID = state.selectedTabProfileID,
            let tabID = profileToTab[selectedProfileID] {
             selectedTabID = tabID
         } else {
             selectedTabID = stripTabs.first?.id
         }
-        AppLogger.shared.info("Restored \(profileToTab.count) tab(s) from launch state")
     }
 
     private func restoreSplitLayoutNode(
@@ -707,25 +800,22 @@ final class AppState: ObservableObject {
     }
 
     func exportEncryptedBackup(to url: URL, passphrase: String) {
-        do {
-            try EncryptedBackup.exportEncrypted(
-                settings: settings,
-                sessionTree: configStore.sessionTree,
-                passphrase: passphrase,
-                to: url
-            )
-        } catch {
-            report(error)
+        Task {
+            do {
+                try await configStore.exportEncryptedBackup(to: url, passphrase: passphrase)
+            } catch {
+                report(error)
+            }
         }
     }
 
     func importEncryptedBackup(from url: URL, passphrase: String) {
-        do {
-            let imported = try EncryptedBackup.importEncrypted(from: url, passphrase: passphrase)
-            configStore.updateSettings(imported.settings)
-            configStore.updateSessionTree(imported.sessionTree)
-        } catch {
-            report(error)
+        Task {
+            do {
+                try await configStore.importEncryptedBackup(from: url, passphrase: passphrase)
+            } catch {
+                report(error)
+            }
         }
     }
 

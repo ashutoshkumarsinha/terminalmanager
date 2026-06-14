@@ -40,6 +40,11 @@ max_scrollback_lines = 10000        # terminal scrollback cap per tab
 sessions_save_off_main = true       # encode/write sessions.json off main thread
 hibernate_inactive_tabs_minutes = 30  # 0 = disable; terminate PTY for hidden tabs after N minutes
 terminal_io_metadata_only = false   # log byte counts instead of terminal content
+defer_sessions_load = true          # load sessions.json when sidebar opens (faster cold launch)
+stagger_tab_restore = true          # restore tabs in batches on launch
+stagger_tab_restore_batch_size = 3
+find_debounce_ms = 200              # debounce ⌘F search input
+broadcast_batch_delay_ms = 15       # delay between broadcast targets (ms)
 
 [[shortcuts]]
 id = "newTab"

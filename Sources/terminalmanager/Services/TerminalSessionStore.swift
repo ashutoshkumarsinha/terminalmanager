@@ -66,13 +66,13 @@ final class TerminalSessionStore {
     }
 
     @discardableResult
-    func findNext(tabID: UUID, query: String) -> Bool {
-        terminals[tabID]?.findNext(query) ?? false
+    func findNext(tabID: UUID, query: String, searchFromEnd: Bool = false) -> Bool {
+        terminals[tabID]?.findNextOccurrence(query, searchFromEnd: searchFromEnd) ?? false
     }
 
     @discardableResult
     func findPrevious(tabID: UUID, query: String) -> Bool {
-        terminals[tabID]?.findPrevious(query) ?? false
+        terminals[tabID]?.findPreviousOccurrence(query) ?? false
     }
 
     func remove(tabID: UUID) {

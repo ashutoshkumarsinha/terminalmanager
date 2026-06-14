@@ -18,8 +18,27 @@ struct SessionSidebarView: View {
     @State private var connectionTestMessage: String?
     @State private var sftpBrowseProfile: SessionProfile?
 
+    private var isSearching: Bool {
+        !debouncedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var filteredTree: [SessionTreeItem] {
-        SessionTreeFilter.filter(configStore.sessionTree, query: debouncedSearchText)
+        configStore.filteredSessionTree(query: debouncedSearchText)
+    }
+
+    private var displayRows: [SessionSidebarFlatRow] {
+        let tree = isSearching ? filteredTree : configStore.sessionTree
+        let folderExpansion = isSearching
+            ? SessionSidebarFlatRowBuilder.allFolderIDs(in: tree)
+            : expandedFolderIDs
+        let groupExpansion = isSearching
+            ? SessionSidebarFlatRowBuilder.allGroupIDs(in: tree)
+            : expandedGroupIDs
+        return SessionSidebarFlatRowBuilder.build(
+            from: tree,
+            expandedFolderIDs: folderExpansion,
+            expandedGroupIDs: groupExpansion
+        )
     }
 
     var body: some View {
@@ -35,45 +54,49 @@ struct SessionSidebarView: View {
                     debouncedSearchText = searchText
                 }
 
-            List(selection: $selectedItemID) {
-                ForEach(filteredTree) { item in
-                    SessionTreeRowView(
-                        item: item,
-                        parentFolderID: nil,
-                        selectedItemID: $selectedItemID,
-                        expandedFolderIDs: $expandedFolderIDs,
-                        expandedGroupIDs: $expandedGroupIDs,
-                        onEditSession: { editingSession = $0 },
-                        onRenameFolder: { renamingFolder = $0 },
-                        onRenameGroup: { renamingGroup = $0 },
-                        onDelete: { itemPendingDeletion = $0 },
-                        onNewSession: { createSession(in: $0) },
-                        onDuplicateSession: duplicateSession,
-                        onDuplicateGroup: duplicateGroup,
-                        onOpenSession: { appState.openTab(from: $0) },
-                        onOpenGroup: { appState.openGroup($0) },
-                        onSaveTabsAsGroup: { showSaveGroupSheet = true },
-                        onTestConnection: testConnection,
-                        onDuplicateToFolder: duplicateSessionToFolder,
-                        onBrowseSFTP: { sftpBrowseProfile = $0 },
-                        onUpdateGroupLayout: updateGroupLayout,
-                        onCreateEmptyGroup: {
-                            let group = appState.createEmptyGroup()
-                            selectedItemID = group.id
-                            renamingGroup = group
-                        }
-                    )
+            if configStore.sessionsLoadInProgress {
+                ProgressView("Loading sessions…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(selection: $selectedItemID) {
+                    ForEach(displayRows) { row in
+                        SessionSidebarFlatRowView(
+                            row: row,
+                            selectedItemID: $selectedItemID,
+                            expandedFolderIDs: $expandedFolderIDs,
+                            expandedGroupIDs: $expandedGroupIDs,
+                            onEditSession: { editingSession = $0 },
+                            onRenameFolder: { renamingFolder = $0 },
+                            onRenameGroup: { renamingGroup = $0 },
+                            onDelete: { itemPendingDeletion = $0 },
+                            onNewSession: { createSession(in: $0) },
+                            onDuplicateSession: duplicateSession,
+                            onDuplicateGroup: duplicateGroup,
+                            onOpenSession: { appState.openTab(from: $0) },
+                            onOpenGroup: { appState.openGroup($0) },
+                            onSaveTabsAsGroup: { showSaveGroupSheet = true },
+                            onTestConnection: testConnection,
+                            onDuplicateToFolder: duplicateSessionToFolder,
+                            onBrowseSFTP: { sftpBrowseProfile = $0 },
+                            onUpdateGroupLayout: updateGroupLayout,
+                            onCreateEmptyGroup: {
+                                let group = appState.createEmptyGroup()
+                                selectedItemID = group.id
+                                renamingGroup = group
+                            }
+                        )
+                    }
                 }
-            }
-            .listStyle(.sidebar)
-            .contextMenu(forSelectionType: UUID.self) { selectedIDs in
-                groupMemberContextMenu(for: selectedIDs)
-            }
-            .contextMenu {
-                sidebarBackgroundContextMenu()
-            }
-            .dropDestination(for: String.self) { items, _ in
-                handleRootDrop(items)
+                .listStyle(.sidebar)
+                .contextMenu(forSelectionType: UUID.self) { selectedIDs in
+                    groupMemberContextMenu(for: selectedIDs)
+                }
+                .contextMenu {
+                    sidebarBackgroundContextMenu()
+                }
+                .dropDestination(for: String.self) { items, _ in
+                    handleRootDrop(items)
+                }
             }
         }
         .alert("Connection Test", isPresented: Binding(
@@ -92,6 +115,7 @@ struct SessionSidebarView: View {
         }
         .navigationTitle("Sessions")
         .onAppear {
+            configStore.loadSessionsIfNeeded()
             appState.sessionTreeSelectionID = selectedItemID
         }
         .onChange(of: selectedItemID) { _, itemID in
@@ -731,7 +755,7 @@ private struct SessionTreeRowView: View {
     }
 }
 
-private struct GroupMemberRowView: View {
+struct GroupMemberRowView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var configStore: ConfigStore
 
@@ -802,7 +826,7 @@ private struct GroupMemberRowView: View {
     }
 }
 
-private enum TagColorHelper {
+enum TagColorHelper {
     static func color(from value: String?) -> Color? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             return nil
@@ -830,7 +854,7 @@ private enum TagColorHelper {
     }
 }
 
-private enum SessionLookup {
+enum SessionLookup {
     static func icon(for protocolType: ConnectionProtocol) -> String {
         switch protocolType {
         case .ssh: "lock.shield"
@@ -842,7 +866,7 @@ private enum SessionLookup {
     }
 }
 
-private extension View {
+extension View {
     func sidebarSelectAndActivate(
         itemID: UUID,
         selectedItemID: Binding<UUID?>,
