@@ -13,16 +13,25 @@ struct SessionEditorView: View {
     @State private var tagColorText: String
     @State private var proxyJumpText: String
     @State private var sshExtraOptionsText: String
+    @State private var remoteEnvironmentText: String
+    @State private var remoteWorkingDirectoryText: String
+    @State private var showNotesPreview = false
 
+    let bastionProfiles: [BastionProfile]
     let isNameAvailable: (String) -> Bool
     let onSave: (SessionProfile) -> Void
 
     init(
         profile: SessionProfile,
+        bastionProfiles: [BastionProfile] = [],
         isNameAvailable: @escaping (String) -> Bool = { _ in true },
         onSave: @escaping (SessionProfile) -> Void
     ) {
-        _profile = State(initialValue: profile)
+        var loaded = profile
+        if loaded.notesInKeychain {
+            loaded.notes = SessionNotesHelper.resolvedNotes(for: profile)
+        }
+        _profile = State(initialValue: loaded)
         _portText = State(initialValue: profile.port.map(String.init) ?? "")
         _initialDirectoryText = State(initialValue: profile.initialDirectory ?? "")
         _sshKeyPathText = State(initialValue: profile.sshKeyPath ?? "")
@@ -30,6 +39,9 @@ struct SessionEditorView: View {
         _tagColorText = State(initialValue: profile.tagColor ?? "")
         _proxyJumpText = State(initialValue: profile.proxyJump ?? "")
         _sshExtraOptionsText = State(initialValue: profile.sshExtraOptions ?? "")
+        _remoteEnvironmentText = State(initialValue: profile.remoteEnvironment ?? "")
+        _remoteWorkingDirectoryText = State(initialValue: profile.remoteWorkingDirectory ?? "")
+        self.bastionProfiles = bastionProfiles
         self.isNameAvailable = isNameAvailable
         self.onSave = onSave
     }
@@ -105,9 +117,27 @@ struct SessionEditorView: View {
                         }
 
                         Section("SSH Options") {
+                            if !bastionProfiles.isEmpty {
+                                Picker("Bastion profile", selection: $profile.bastionProfileID) {
+                                    Text("None").tag(UUID?.none)
+                                    ForEach(bastionProfiles) { bastion in
+                                        Text(bastion.name).tag(Optional(bastion.id))
+                                    }
+                                }
+                            }
                             TextField("ProxyJump (-J)", text: $proxyJumpText, prompt: Text("bastion.example.com"))
                             TextField("Extra SSH options", text: $sshExtraOptionsText, prompt: Text("-o ServerAliveInterval=30"))
                                 .font(.system(.body, design: .monospaced))
+                        }
+
+                        Section("Remote Environment") {
+                            TextField("Remote working directory", text: $remoteWorkingDirectoryText, prompt: Text("/var/www"))
+                            TextEditor(text: $remoteEnvironmentText)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 60)
+                            Text("Optional export KEY=value lines applied when the SSH session starts.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -117,13 +147,21 @@ struct SessionEditorView: View {
                         .appHelp("Optional color shown beside the session in the sidebar")
                 }
 
+                Section("Notes") {
+                    Toggle("Store notes in Keychain", isOn: $profile.notesInKeychain)
+                    TextField("Notes", text: $profile.notes, axis: .vertical)
+                        .lineLimit(2...6)
+                    Toggle("Markdown preview", isOn: $showNotesPreview)
+                    if showNotesPreview, !profile.notes.isEmpty {
+                        notesPreview
+                    }
+                }
+
                 Section("Options") {
                     if profile.protocolType == .ssh {
                         Toggle("Enable SFTP", isOn: $profile.sftpEnabled)
                             .appHelp("Show an SFTP shortcut for this session in the sidebar")
                     }
-                    TextField("Notes", text: $profile.notes, axis: .vertical)
-                        .lineLimit(2...4)
                 }
 
                 Section("Startup Commands") {
@@ -159,6 +197,24 @@ struct SessionEditorView: View {
             }
         }
         .frame(width: 520, height: 640)
+    }
+
+    @ViewBuilder
+    private var notesPreview: some View {
+        if let attributed = try? AttributedString(
+            markdown: profile.notes,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            Text(attributed)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+        } else {
+            Text(profile.notes)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+        }
     }
 
     private var canSave: Bool {
@@ -217,9 +273,25 @@ struct SessionEditorView: View {
             saved.proxyJump = proxyJump.isEmpty ? nil : proxyJump
             let extraOptions = sshExtraOptionsText.trimmingCharacters(in: .whitespacesAndNewlines)
             saved.sshExtraOptions = extraOptions.isEmpty ? nil : extraOptions
+            let remoteEnv = remoteEnvironmentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            saved.remoteEnvironment = remoteEnv.isEmpty ? nil : remoteEnv
+            let remoteCWD = remoteWorkingDirectoryText.trimmingCharacters(in: .whitespacesAndNewlines)
+            saved.remoteWorkingDirectory = remoteCWD.isEmpty ? nil : remoteCWD
         } else {
             saved.proxyJump = nil
             saved.sshExtraOptions = nil
+            saved.remoteEnvironment = nil
+            saved.remoteWorkingDirectory = nil
+            saved.bastionProfileID = nil
+        }
+
+        if saved.notesInKeychain {
+            if !saved.notes.isEmpty {
+                try? SessionNotesHelper.storeNotes(saved.notes, for: saved.id)
+            }
+            saved.notes = ""
+        } else {
+            try? SessionNotesHelper.deleteNotes(for: saved.id)
         }
 
         if saved.sshAuthMethod == .password, !saved.password.isEmpty {

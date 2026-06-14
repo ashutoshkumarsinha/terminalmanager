@@ -1,0 +1,370 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		6D6E1C062E2A000000000004 /* TerminalManagerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6E1C062E2A000000000014 /* TerminalManagerUITests.swift */; };
+		6D6E1C062E2A000000000015 /* HostMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6E1C062E2A000000000016 /* HostMarker.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		6D6E1C062E2A000000000050 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 6D6E1C062E2A000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6D6E1C062E2A000000000060;
+			remoteInfo = "Terminal Manager";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		6D6E1C062E2A000000000003 /* TerminalManagerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TerminalManagerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6D6E1C062E2A000000000014 /* TerminalManagerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalManagerUITests.swift; sourceTree = "<group>"; };
+		6D6E1C062E2A000000000016 /* HostMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostMarker.swift; sourceTree = "<group>"; };
+		6D6E1C062E2A000000000017 /* Terminal Manager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Terminal Manager.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6D6E1C062E2A000000000018 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6D6E1C062E2A000000000021 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6D6E1C062E2A000000000061 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		6D6E1C062E2A000000000010 = {
+			isa = PBXGroup;
+			children = (
+				6D6E1C062E2A000000000019 /* Host */,
+				6D6E1C062E2A000000000011 /* Tests */,
+				6D6E1C062E2A000000000012 /* Products */,
+				6D6E1C062E2A00000000001A /* Resources */,
+			);
+			sourceTree = "<group>";
+		};
+		6D6E1C062E2A000000000011 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				6D6E1C062E2A000000000013 /* TerminalManagerUITests */,
+			);
+			name = Tests;
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		6D6E1C062E2A000000000012 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6D6E1C062E2A000000000017 /* Terminal Manager.app */,
+				6D6E1C062E2A000000000003 /* TerminalManagerUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		6D6E1C062E2A000000000013 /* TerminalManagerUITests */ = {
+			isa = PBXGroup;
+			children = (
+				6D6E1C062E2A000000000014 /* TerminalManagerUITests.swift */,
+			);
+			path = TerminalManagerUITests;
+			sourceTree = "<group>";
+		};
+		6D6E1C062E2A000000000019 /* Host */ = {
+			isa = PBXGroup;
+			children = (
+				6D6E1C062E2A000000000016 /* HostMarker.swift */,
+			);
+			path = Host;
+			sourceTree = "<group>";
+		};
+		6D6E1C062E2A00000000001A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				6D6E1C062E2A000000000018 /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		6D6E1C062E2A000000000002 /* TerminalManagerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6D6E1C062E2A000000000031 /* Build configuration list for PBXNativeTarget "TerminalManagerUITests" */;
+			buildPhases = (
+				6D6E1C062E2A000000000020 /* Sources */,
+				6D6E1C062E2A000000000021 /* Frameworks */,
+				6D6E1C062E2A000000000022 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6D6E1C062E2A000000000051 /* PBXTargetDependency */,
+			);
+			name = TerminalManagerUITests;
+			productName = TerminalManagerUITests;
+			productReference = 6D6E1C062E2A000000000003 /* TerminalManagerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		6D6E1C062E2A000000000060 /* Terminal Manager */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6D6E1C062E2A000000000071 /* Build configuration list for PBXNativeTarget "Terminal Manager" */;
+			buildPhases = (
+				6D6E1C062E2A000000000062 /* ShellScript Copy SPM App */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Terminal Manager";
+			productName = "Terminal Manager";
+			productReference = 6D6E1C062E2A000000000017 /* Terminal Manager.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		6D6E1C062E2A000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					6D6E1C062E2A000000000002 = {
+						TestTargetID = 6D6E1C062E2A000000000060;
+					};
+					6D6E1C062E2A000000000060 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = 6D6E1C062E2A000000000030 /* Build configuration list for PBXProject "TerminalManager" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 6D6E1C062E2A000000000010;
+			productRefGroup = 6D6E1C062E2A000000000012 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				6D6E1C062E2A000000000060 /* Terminal Manager */,
+				6D6E1C062E2A000000000002 /* TerminalManagerUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		6D6E1C062E2A000000000022 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		6D6E1C062E2A000000000062 /* ShellScript Copy SPM App */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy SPM App";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "bash \"${SRCROOT}/scripts/xcode-copy-host-app.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6D6E1C062E2A000000000020 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6D6E1C062E2A000000000004 /* TerminalManagerUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6D6E1C062E2A000000000063 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6D6E1C062E2A000000000015 /* HostMarker.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		6D6E1C062E2A000000000051 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6D6E1C062E2A000000000060 /* Terminal Manager */;
+			targetProxy = 6D6E1C062E2A000000000050 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		6D6E1C062E2A000000000040 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		6D6E1C062E2A000000000041 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		6D6E1C062E2A000000000042 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGN_IDENTITY = "-";
+				AD_HOC_CODE_SIGNING_ALLOWED = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.terminalmanager.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Terminal Manager";
+			};
+			name = Debug;
+		};
+		6D6E1C062E2A000000000043 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGN_IDENTITY = "-";
+				AD_HOC_CODE_SIGNING_ALLOWED = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.terminalmanager.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Terminal Manager";
+			};
+			name = Release;
+		};
+		6D6E1C062E2A000000000072 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = Resources/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.terminalmanager.app;
+				PRODUCT_NAME = "Terminal Manager";
+				SDKROOT = macosx;
+				SKIP_INSTALL = NO;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		6D6E1C062E2A000000000073 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = Resources/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.terminalmanager.app;
+				PRODUCT_NAME = "Terminal Manager";
+				SDKROOT = macosx;
+				SKIP_INSTALL = NO;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		6D6E1C062E2A000000000030 /* Build configuration list for PBXProject "TerminalManager" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6D6E1C062E2A000000000040 /* Debug */,
+				6D6E1C062E2A000000000041 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6D6E1C062E2A000000000031 /* Build configuration list for PBXNativeTarget "TerminalManagerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6D6E1C062E2A000000000042 /* Debug */,
+				6D6E1C062E2A000000000043 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6D6E1C062E2A000000000071 /* Build configuration list for PBXNativeTarget "Terminal Manager" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6D6E1C062E2A000000000072 /* Debug */,
+				6D6E1C062E2A000000000073 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 6D6E1C062E2A000000000001 /* Project object */;
+}

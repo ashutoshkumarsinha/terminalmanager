@@ -401,23 +401,23 @@ flowchart TB
 | Unbounded scrollback per tab | `max_scrollback_lines` | PF-06 |
 | PTY alive for all started tabs | Tab hibernation + lazy start | PF-10, PF-11, TE-06 |
 
-### 13.4 Planned state decomposition (TE-02)
+### 13.4 State decomposition (TE-02)
 
 ```mermaid
 flowchart LR
-    AS[AppState today] --> TWS[TabWorkspaceState]
+    AS[AppState] --> TWS[TabWorkspaceState]
     AS --> SLS[SessionLibraryState]
-    AS --> SS[SettingsState]
+    AS --> CS[ConfigStore]
     TWS --> TS[TerminalSessionStore]
-    SLS --> CS[ConfigStore]
+    SLS --> CS
 ```
 
-| Model | Owns |
-|-------|------|
-| `TabWorkspaceState` | `tabs`, `selectedTabID`, `splitLayouts`, detached tabs, reconnect |
-| `SessionLibraryState` | `sessionTree`, search index, selection |
-| `SettingsState` | `AppSettings`, appearance, logging toggles |
-| `PersistenceCoordinator` | Debounced/off-main writes for sessions, launch state, window state |
+| Model | Owns | Status |
+|-------|------|--------|
+| `TabWorkspaceState` | `tabs`, `selectedTabID`, `splitLayouts`, detached tabs, reconnect, health | ✅ Shipped |
+| `SessionLibraryState` | Sidebar selection, search debounce, expand state, pending Edit-menu actions | ✅ Shipped |
+| `SettingsState` | `AppSettings`, appearance, logging toggles | 📋 Planned |
+| `PersistenceCoordinator` | Debounced/off-main writes for sessions, launch state, window state | ✅ Shipped |
 
 ### 13.5 Measurement
 

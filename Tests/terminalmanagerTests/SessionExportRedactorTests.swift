@@ -46,4 +46,28 @@ final class SessionExportRedactorTests: XCTestCase {
         }
         XCTAssertEqual(group.name, "Stack")
     }
+
+    func testRedactProfileClearsNotesWhenKeychainBacked() {
+        var profile = SessionProfile(
+            name: "Web",
+            host: "web01",
+            protocolType: .ssh,
+            notes: "",
+            notesInKeychain: true
+        )
+        let redacted = SessionExportRedactor.redactProfile(profile)
+        XCTAssertFalse(redacted.notesInKeychain)
+        XCTAssertEqual(redacted.notes, "")
+    }
+
+    func testRedactProfileClearsInlineNotes() {
+        var profile = SessionProfile(
+            name: "Web",
+            host: "web01",
+            protocolType: .ssh,
+            notes: "visible note"
+        )
+        let redacted = SessionExportRedactor.redactProfile(profile)
+        XCTAssertEqual(redacted.notes, "")
+    }
 }

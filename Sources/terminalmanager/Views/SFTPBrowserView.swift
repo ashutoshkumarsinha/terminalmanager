@@ -3,12 +3,16 @@ import SwiftUI
 
 struct SFTPBrowserView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appState: AppState
 
     let profile: SessionProfile
     @State private var path: String = "."
+    @State private var bookmarks: [String] = []
     @State private var entries: [SFTPEntry] = []
     @State private var isLoading = false
+    @State private var isTransferring = false
     @State private var errorMessage: String?
+    @State private var statusMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -35,6 +39,12 @@ struct SFTPBrowserView: View {
                                 .foregroundStyle(entry.isDirectory ? .secondary : .primary)
                             Text(entry.name)
                             Spacer()
+                            if !entry.isDirectory {
+                                Button("Download") {
+                                    downloadEntry(entry)
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -46,9 +56,47 @@ struct SFTPBrowserView: View {
                 }
             }
             .navigationTitle("\(profile.name) — SFTP")
+            .safeAreaInset(edge: .bottom) {
+                if let statusMessage {
+                    Text(statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background(.bar)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                }
+                ToolbarItem {
+                    Menu {
+                        if bookmarks.isEmpty {
+                            Text("No bookmarks")
+                        } else {
+                            ForEach(bookmarks, id: \.self) { bookmark in
+                                Button(bookmark) {
+                                    path = bookmark
+                                    loadDirectory()
+                                }
+                            }
+                            Divider()
+                        }
+                        Button("Bookmark Current Folder") {
+                            saveBookmark()
+                        }
+                    } label: {
+                        Label("Bookmarks", systemImage: "bookmark")
+                    }
+                }
+                ToolbarItem {
+                    Button {
+                        uploadFile()
+                    } label: {
+                        Label("Upload", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(isTransferring)
                 }
                 ToolbarItem {
                     Button {
@@ -69,7 +117,59 @@ struct SFTPBrowserView: View {
         }
         .frame(width: 520, height: 420)
         .onAppear {
+            bookmarks = profile.sftpBookmarks
             loadDirectory()
+        }
+    }
+
+    private func saveBookmark() {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !bookmarks.contains(trimmed) else { return }
+        bookmarks.append(trimmed)
+        var updated = profile
+        updated.sftpBookmarks = bookmarks
+        _ = appState.updateSessionProfile(updated)
+        statusMessage = "Bookmarked \(trimmed)"
+    }
+
+    private func uploadFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let localURL = panel.url else { return }
+        let remotePath = joinedPath(path, localURL.lastPathComponent)
+        isTransferring = true
+        statusMessage = "Uploading \(localURL.lastPathComponent)…"
+        Task {
+            do {
+                try await SFTPTransferService.upload(localURL: localURL, to: remotePath, profile: profile)
+                statusMessage = "Uploaded \(localURL.lastPathComponent)"
+                loadDirectory()
+            } catch {
+                errorMessage = error.localizedDescription
+                statusMessage = nil
+            }
+            isTransferring = false
+        }
+    }
+
+    private func downloadEntry(_ entry: SFTPEntry) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = entry.name
+        guard panel.runModal() == .OK, let localURL = panel.url else { return }
+        let remotePath = joinedPath(path, entry.name)
+        isTransferring = true
+        statusMessage = "Downloading \(entry.name)…"
+        Task {
+            do {
+                try await SFTPTransferService.download(remotePath: remotePath, to: localURL, profile: profile)
+                statusMessage = "Downloaded \(entry.name)"
+            } catch {
+                errorMessage = error.localizedDescription
+                statusMessage = nil
+            }
+            isTransferring = false
         }
     }
 

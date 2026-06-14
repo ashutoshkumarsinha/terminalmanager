@@ -10,6 +10,8 @@ struct TerminalManagerApp: App {
         WindowGroup(AppInfo.displayName) {
             MainWindowView()
                 .environmentObject(appState)
+                .environmentObject(appState.tabWorkspace)
+                .environmentObject(appState.sessionLibrary)
                 .environmentObject(appState.configStore)
                 .environment(\.showTooltips, appState.settings.showTooltips)
                 .onAppear {
@@ -86,6 +88,26 @@ struct TerminalManagerApp: App {
                     appState.requestSessionTreeAction(.createGroupFromOpenTabs)
                 }
                 .disabled(!appState.canCreateGroupFromOpenTabs)
+                Divider()
+                Button("Export Terminal Transcript…") {
+                    appState.exportActiveTabTranscript(selectionOnly: false)
+                }
+                Button("Export Terminal Selection…") {
+                    appState.exportActiveTabTranscript(selectionOnly: true)
+                }
+                Button("Export Tab I/O Log…") {
+                    appState.exportActiveTabIOLog(redactSecrets: true)
+                }
+                Button("Export Session Recording…") {
+                    appState.exportActiveTabRecording()
+                }
+                Button("Reveal Session Recording") {
+                    appState.revealActiveTabRecording()
+                }
+                Divider()
+                Button("Check for Updates…") {
+                    Task { await appState.checkForUpdates(userInitiated: true) }
+                }
             }
 
             CommandGroup(replacing: .sidebar) {
@@ -126,6 +148,8 @@ struct TerminalManagerApp: App {
         Settings {
             SettingsView()
                 .environmentObject(appState)
+                .environmentObject(appState.tabWorkspace)
+                .environmentObject(appState.sessionLibrary)
                 .environmentObject(appState.configStore)
                 .environment(\.showTooltips, appState.settings.showTooltips)
         }
@@ -139,6 +163,8 @@ struct TerminalManagerApp: App {
             if let tabID {
                 DetachedWindowView(tabID: tabID)
                     .environmentObject(appState)
+                    .environmentObject(appState.tabWorkspace)
+                    .environmentObject(appState.sessionLibrary)
                     .environmentObject(appState.configStore)
                     .environment(\.showTooltips, appState.settings.showTooltips)
             }

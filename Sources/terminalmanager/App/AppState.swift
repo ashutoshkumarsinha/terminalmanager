@@ -1,39 +1,99 @@
 import Foundation
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
+import Combine
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var tabs: [TerminalTab] = []
-    @Published var selectedTabID: UUID?
-    @Published private(set) var splitLayouts: [UUID: SplitLayoutNode] = [:]
-    @Published var detachedTabs: [TerminalTab] = []
     @Published var errorMessage: String?
     @Published var focusCommandBar = false
-    @Published var sessionTreeSelectionID: UUID?
-    @Published var pendingSessionTreeAction: SessionTreeAction?
     @Published var openUserGuide = false
     @Published var showFindBar = false
     @Published var findQuery = ""
     @Published private(set) var debouncedFindQuery = ""
-    @Published var tabPendingReconnect: TerminalTab?
-    @Published var pendingDetachedWindowTabID: UUID?
+    @Published var pendingUpdate: UpdateChecker.UpdateInfo?
+    @Published var showUpdatePrompt = false
 
     private var findDebounceTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
     let configStore: ConfigStore
     var broadcastManager: BroadcastManager
     let terminalStore = TerminalSessionStore()
     let tabLifecycleManager = TabLifecycleManager()
+    let tabWorkspace = TabWorkspaceState()
+    let sessionLibrary = SessionLibraryState()
+    private let connectionHealthMonitor = ConnectionHealthMonitor()
+    @Published var updateAvailableURL: String?
 
     init(configStore: ConfigStore? = nil, broadcastManager: BroadcastManager? = nil) {
         self.configStore = configStore ?? ConfigStore()
         self.broadcastManager = broadcastManager ?? BroadcastManager()
+        tabWorkspace.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        sessionLibrary.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
         tabLifecycleManager.onHibernate = { [weak self] tabID in
             self?.hibernateTab(tabID)
         }
         tabLifecycleManager.onHibernateTick = { [weak self] in
             self?.runTabHibernationCheck()
         }
+        connectionHealthMonitor.onEvaluate = { [weak self] in
+            self?.evaluateConnectionHealth()
+        }
+    }
+
+    // MARK: - Tab workspace forwarding (TE-02)
+
+    var tabs: [TerminalTab] { tabWorkspace.tabs }
+    var selectedTabID: UUID? {
+        get { tabWorkspace.selectedTabID }
+        set { tabWorkspace.selectedTabID = newValue }
+    }
+    var splitLayouts: [UUID: SplitLayoutNode] { tabWorkspace.splitLayouts }
+    var detachedTabs: [TerminalTab] { tabWorkspace.detachedTabs }
+    var tabPendingReconnect: TerminalTab? {
+        get { tabWorkspace.tabPendingReconnect }
+        set { tabWorkspace.tabPendingReconnect = newValue }
+    }
+    var pendingDetachedWindowTabID: UUID? {
+        get { tabWorkspace.pendingDetachedWindowTabID }
+        set { tabWorkspace.pendingDetachedWindowTabID = newValue }
+    }
+
+    var connectionHealth: [UUID: TabConnectionHealth] {
+        tabWorkspace.connectionHealth
+    }
+
+    var selectedTab: TerminalTab? { tabWorkspace.selectedTab }
+    var stripTabs: [TerminalTab] { tabWorkspace.stripTabs }
+
+    func stripTabID(for tabID: UUID) -> UUID? {
+        tabWorkspace.stripTabID(for: tabID)
+    }
+
+    func isStripTabSelected(_ id: UUID) -> Bool {
+        tabWorkspace.isStripTabSelected(id)
+    }
+
+    // MARK: - Session library forwarding (TE-02)
+
+    var sessionTreeSelectionID: UUID? {
+        get { sessionLibrary.selectionID }
+        set { sessionLibrary.selectionID = newValue }
+    }
+
+    var pendingSessionTreeAction: SessionTreeAction? {
+        get { sessionLibrary.pendingAction }
+        set { sessionLibrary.pendingAction = newValue }
+    }
+
+    var selectedSessionTreeFolder: SessionFolder? {
+        sessionLibrary.selectedFolder(using: configStore)
     }
 
     var settings: AppSettings {
@@ -45,6 +105,8 @@ final class AppState: ObservableObject {
                 configStore.settings.terminalFontSize,
                 configStore.settings.terminalTheme
             )
+            let previousCopyOnSelect = configStore.settings.copyOnSelect
+            let previousPalette = configStore.settings.ansiPalette
             configStore.updateSettings(newValue)
             if newValue.logLevel != previousLevel {
                 AppLogger.shared.configure(level: newValue.logLevel)
@@ -55,71 +117,35 @@ final class AppState: ObservableObject {
                 metadataOnly: newValue.terminalIOMetadataOnly
             )
             configureTabLifecycleMonitoring(from: newValue)
+            configureSessionRecording(from: newValue)
+            configureConnectionHealthMonitoring(from: newValue)
             let newAppearance = (
                 newValue.terminalFontName,
                 newValue.terminalFontSize,
                 newValue.terminalTheme
             )
-            if previousAppearance != newAppearance {
+            if previousAppearance != newAppearance
+                || previousCopyOnSelect != newValue.copyOnSelect
+                || previousPalette != newValue.ansiPalette {
                 terminalStore.configureAppearance(from: newValue)
             }
         }
     }
 
-    var selectedTab: TerminalTab? {
-        tabs.first { $0.id == selectedTabID }
-    }
-
-    var stripTabs: [TerminalTab] {
-        tabs.filter { !$0.isSplitPane }
-    }
-
-    func stripTabID(for tabID: UUID) -> UUID? {
-        if tabs.contains(where: { $0.id == tabID && !$0.isSplitPane }) {
-            return tabID
-        }
-        return splitLayoutAnchor(containing: tabID)
-    }
-
-    func isStripTabSelected(_ id: UUID) -> Bool {
-        guard let selectedTabID else { return false }
-        return stripTabID(for: selectedTabID) == id
-    }
-
-    var selectedSessionTreeFolder: SessionFolder? {
-        guard let sessionTreeSelectionID,
-              let item = configStore.item(withID: sessionTreeSelectionID),
-              case .folder(let folder) = item else {
-            return nil
-        }
-        return folder
-    }
-
     var canCreateGroupFromOpenTabs: Bool {
-        !tabs.isEmpty
+        !tabWorkspace.tabs.isEmpty
     }
 
     func requestSessionTreeAction(_ action: SessionTreeAction) {
-        pendingSessionTreeAction = action
+        sessionLibrary.requestAction(action)
     }
 
     func consumeSessionTreeAction() {
-        pendingSessionTreeAction = nil
+        sessionLibrary.consumeAction()
     }
 
     func folderIDForNewSession() -> UUID? {
-        guard let sessionTreeSelectionID,
-              let item = configStore.item(withID: sessionTreeSelectionID) else {
-            return nil
-        }
-        switch item {
-        case .folder(let folder):
-            return folder.id
-        case .session:
-            return configStore.parentFolderID(of: sessionTreeSelectionID)
-        case .group:
-            return nil
-        }
+        sessionLibrary.folderIDForNewSession(using: configStore)
     }
 
     func bootstrap() {
@@ -132,6 +158,12 @@ final class AppState: ObservableObject {
         )
         terminalStore.configureAppearance(from: settings)
         configureTabLifecycleMonitoring(from: settings)
+        configureConnectionHealthMonitoring(from: settings)
+        configureSessionRecording(from: settings)
+        let skipBackgroundTasks = CommandLine.arguments.contains("-uitest")
+        if settings.checkForUpdates, !skipBackgroundTasks {
+            Task { await checkForUpdates(userInitiated: false) }
+        }
         configStore.onSessionsLoaded = { [weak self] in
             self?.finishBootstrapAfterSessionsLoad()
         }
@@ -190,42 +222,21 @@ final class AppState: ObservableObject {
     }
 
     func splitLayout(containing tabID: UUID) -> SplitLayoutNode? {
-        for layout in splitLayouts.values where layout.isSplitTree && layout.tabIDsInLayout().contains(tabID) {
-            return layout
-        }
-        return nil
+        tabWorkspace.splitLayout(containing: tabID)
     }
 
     func hasSplitLayout(for tabID: UUID) -> Bool {
-        splitLayout(containing: tabID) != nil
-    }
-
-    private func splitLayoutAnchor(containing tabID: UUID) -> UUID? {
-        for (anchor, layout) in splitLayouts where layout.isSplitTree && layout.tabIDsInLayout().contains(tabID) {
-            return anchor
-        }
-        return nil
+        tabWorkspace.hasSplitLayout(for: tabID)
     }
 
     private func setSplitLayout(_ layout: SplitLayoutNode, anchor: UUID) {
-        if layout.isSplitTree {
-            splitLayouts[anchor] = layout
-        } else {
-            splitLayouts.removeValue(forKey: anchor)
-        }
+        tabWorkspace.setSplitLayout(layout, anchor: anchor)
         saveLaunchState()
     }
 
     private func removeTabFromSplitLayouts(_ tabID: UUID) {
-        let anchors = splitLayouts.keys.filter { splitLayouts[$0]?.tabIDsInLayout().contains(tabID) == true }
-        for anchor in anchors {
-            guard let layout = splitLayouts[anchor],
-                  let updated = removeTabFromLayout(tabID, in: layout) else {
-                splitLayouts.removeValue(forKey: anchor)
-                continue
-            }
-            setSplitLayout(updated, anchor: anchor)
-        }
+        tabWorkspace.removeTabFromSplitLayouts(tabID)
+        saveLaunchState()
     }
 
     @discardableResult
@@ -241,7 +252,11 @@ final class AppState: ObservableObject {
             overrideCommand: overrideCommand,
             initScript: profile.initScript
         )
-        tabs.append(tab)
+        tabWorkspace.tabs.append(tab)
+        connectionHealthMonitor.touchTab(tab.id)
+        if let profile = tab.profile {
+            SessionRecorder.shared.start(tabID: tab.id, sessionName: profile.name)
+        }
         if select {
             selectedTabID = tab.id
         }
@@ -261,27 +276,27 @@ final class AppState: ObservableObject {
         openTab(from: profile)
     }
 
-    func openLocalTab() {
-        let profile = SessionProfile(name: "Local", host: "", protocolType: .local)
-        openTab(from: profile)
+    @discardableResult
+    func openLocalTab() -> UUID {
+        openTab(from: SessionProfile(name: "Local", host: "", protocolType: .local))
     }
 
     func closeTab(_ tabID: UUID) {
-        let closingPane = tabs.first(where: { $0.id == tabID })?.isSplitPane == true
+        let closingPane = tabWorkspace.tabs.first(where: { $0.id == tabID })?.isSplitPane == true
         let tabIDsToClose: Set<UUID>
         if closingPane {
             tabIDsToClose = [tabID]
             removeTabFromSplitLayouts(tabID)
-        } else if let layout = splitLayouts[tabID] {
+        } else if let layout = tabWorkspace.splitLayout(at: tabID) {
             tabIDsToClose = layout.tabIDsInLayout()
-            splitLayouts.removeValue(forKey: tabID)
+            tabWorkspace.removeSplitLayout(anchor: tabID)
         } else {
             tabIDsToClose = [tabID]
         }
 
         for id in tabIDsToClose {
-            let title = tabs.first(where: { $0.id == id })?.title ?? id.uuidString
-            tabs.removeAll { $0.id == id }
+            let title = tabWorkspace.tabs.first(where: { $0.id == id })?.title ?? id.uuidString
+            tabWorkspace.tabs.removeAll { $0.id == id }
             cleanupTabResources(tabID: id)
             AppLogger.shared.info("Closed tab '\(title)'")
         }
@@ -289,8 +304,8 @@ final class AppState: ObservableObject {
         if let selectedTabID, tabIDsToClose.contains(selectedTabID) {
             self.selectedTabID = stripTabs.last?.id
         }
-        if tabs.isEmpty {
-            splitLayouts.removeAll()
+        if tabWorkspace.tabs.isEmpty {
+            tabWorkspace.clearSplitLayouts()
         }
         saveLaunchState()
     }
@@ -303,17 +318,17 @@ final class AppState: ObservableObject {
     @discardableResult
     func moveTab(withID draggedID: UUID, before beforeID: UUID?) -> Bool {
         guard draggedID != beforeID,
-              let fromIndex = tabs.firstIndex(where: { $0.id == draggedID }) else {
+              let fromIndex = tabWorkspace.tabs.firstIndex(where: { $0.id == draggedID }) else {
             return false
         }
-        var reordered = tabs
+        var reordered = tabWorkspace.tabs
         let tab = reordered.remove(at: fromIndex)
         if let beforeID, let insertIndex = reordered.firstIndex(where: { $0.id == beforeID }) {
             reordered.insert(tab, at: insertIndex)
         } else {
             reordered.append(tab)
         }
-        tabs = reordered
+        tabWorkspace.tabs = reordered
         saveLaunchState()
         return true
     }
@@ -321,8 +336,8 @@ final class AppState: ObservableObject {
     func renameTab(_ tabID: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
-              let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
-        tabs[index].title = trimmed
+              let index = tabWorkspace.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        tabWorkspace.tabs[index].title = trimmed
         saveLaunchState()
     }
 
@@ -349,23 +364,23 @@ final class AppState: ObservableObject {
     }
 
     func detachTab(_ tabID: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabID }),
-              !tabs[index].isSplitPane else { return }
+        guard let index = tabWorkspace.tabs.firstIndex(where: { $0.id == tabID }),
+              !tabWorkspace.tabs[index].isSplitPane else { return }
 
-        if let layout = splitLayouts[tabID] {
+        if let layout = tabWorkspace.splitLayout(at: tabID) {
             let paneIDs = layout.tabIDsInLayout().subtracting([tabID])
-            splitLayouts.removeValue(forKey: tabID)
+            tabWorkspace.removeSplitLayout(anchor: tabID)
             for paneID in paneIDs {
-                tabs.removeAll { $0.id == paneID }
+                tabWorkspace.tabs.removeAll { $0.id == paneID }
                 cleanupTabResources(tabID: paneID)
             }
         } else {
             removeTabFromSplitLayouts(tabID)
         }
 
-        var tab = tabs.remove(at: index)
+        var tab = tabWorkspace.tabs.remove(at: index)
         tab.isDetached = true
-        detachedTabs.append(tab)
+        tabWorkspace.detachedTabs.append(tab)
         pendingDetachedWindowTabID = tabID
         if let selectedTabID, stripTabID(for: selectedTabID) == tabID {
             self.selectedTabID = stripTabs.last?.id
@@ -374,9 +389,9 @@ final class AppState: ObservableObject {
     }
 
     func closeDetachedTab(_ tabID: UUID) {
-        guard let index = detachedTabs.firstIndex(where: { $0.id == tabID }) else { return }
-        let title = detachedTabs[index].title
-        detachedTabs.remove(at: index)
+        guard let index = tabWorkspace.detachedTabs.firstIndex(where: { $0.id == tabID }) else { return }
+        let title = tabWorkspace.detachedTabs[index].title
+        tabWorkspace.detachedTabs.remove(at: index)
         cleanupTabResources(tabID: tabID)
         AppLogger.shared.info("Closed detached tab '\(title)'")
     }
@@ -392,7 +407,7 @@ final class AppState: ObservableObject {
     func runTabHibernationCheck() {
         let minutes = settings.hibernateInactiveTabsMinutes
         guard minutes > 0 else { return }
-        let allTabs = tabs + detachedTabs
+        let allTabs = tabWorkspace.tabs + tabWorkspace.detachedTabs
         var runningTabIDs = Set(allTabs.filter { $0.sessionState == .running }.map(\.id))
         for tab in allTabs where terminalStore.isRunning(tabID: tab.id) {
             runningTabIDs.insert(tab.id)
@@ -406,7 +421,7 @@ final class AppState: ObservableObject {
 
     func hibernateTab(_ tabID: UUID) {
         guard terminalStore.isRunning(tabID: tabID) || terminalStore.hasTerminal(tabID: tabID) else { return }
-        let title = (tabs + detachedTabs).first(where: { $0.id == tabID })?.title ?? tabID.uuidString
+        let title = (tabWorkspace.tabs + tabWorkspace.detachedTabs).first(where: { $0.id == tabID })?.title ?? tabID.uuidString
         broadcastManager.unregister(tabID: tabID)
         terminalStore.hibernate(tabID: tabID)
         updateTabSessionState(tabID: tabID, state: .hibernated, exitCode: nil)
@@ -415,8 +430,181 @@ final class AppState: ObservableObject {
 
     private func cleanupTabResources(tabID: UUID) {
         tabLifecycleManager.removeTab(tabID)
+        connectionHealthMonitor.removeTab(tabID)
+        tabWorkspace.removeConnectionHealth(for: tabID)
         broadcastManager.unregister(tabID: tabID)
         terminalStore.remove(tabID: tabID)
+    }
+
+    func recordTerminalOutput(tabID: UUID) {
+        connectionHealthMonitor.recordOutput(tabID: tabID)
+        evaluateConnectionHealth()
+    }
+
+    private func evaluateConnectionHealth() {
+        for tab in tabWorkspace.tabs {
+            let health = connectionHealthMonitor.health(
+                for: tab.id,
+                isRunning: terminalStore.isRunning(tabID: tab.id)
+            )
+            tabWorkspace.setConnectionHealth(health, for: tab.id)
+        }
+    }
+
+    private func configureConnectionHealthMonitoring(from settings: AppSettings) {
+        connectionHealthMonitor.configure(staleAfterMinutes: settings.staleTabMinutes)
+        if settings.staleTabMinutes > 0 {
+            connectionHealthMonitor.start()
+        } else {
+            connectionHealthMonitor.stop()
+        }
+        evaluateConnectionHealth()
+    }
+
+    func exportActiveTabTranscript(selectionOnly: Bool) {
+        guard let tabID = selectedTabID else {
+            errorMessage = "No tab is selected."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = selectionOnly ? "selection.txt" : "transcript.txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            if selectionOnly {
+                try terminalStore.exportSelection(tabID: tabID, to: url)
+            } else {
+                try terminalStore.exportScrollback(tabID: tabID, to: url)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func exportActiveTabIOLog(redactSecrets: Bool = true) {
+        guard let tab = selectedTab else {
+            errorMessage = "No tab is selected."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "\(tab.title)-io-log.txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try TerminalIOLogExporter.exportTabLog(
+                tabID: tab.id,
+                sessionName: tab.profile?.name ?? tab.title,
+                to: url,
+                redactSecrets: redactSecrets,
+                settings: settings
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func updateTabRemoteOverrides(
+        tabID: UUID,
+        remoteEnvironment: String?,
+        remoteWorkingDirectory: String?
+    ) {
+        guard let index = tabWorkspace.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        tabWorkspace.tabs[index].remoteEnvironmentOverride = remoteEnvironment
+        tabWorkspace.tabs[index].remoteWorkingDirectoryOverride = remoteWorkingDirectory
+        saveLaunchState()
+    }
+
+    func addSFTPBookmark(for profileID: UUID, path: String) {
+        guard var profile = configStore.sessionProfile(withID: profileID) else { return }
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !profile.sftpBookmarks.contains(trimmed) else { return }
+        profile.sftpBookmarks.append(trimmed)
+        _ = updateSessionProfile(profile)
+    }
+
+    func revealActiveTabRecording() {
+        guard let tabID = selectedTabID,
+              let url = SessionRecorder.shared.recordingURL(for: tabID) else {
+            errorMessage = "No session recording is available for the selected tab."
+            return
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            errorMessage = "Recording is still in progress. Close the session or wait for it to finish."
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func exportActiveTabRecording() {
+        guard let tabID = selectedTabID,
+              let sourceURL = SessionRecorder.shared.recordingURL(for: tabID) else {
+            errorMessage = "No session recording is available for the selected tab."
+            return
+        }
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            errorMessage = "Recording is still in progress. Close the session or wait for it to finish."
+            return
+        }
+        let format = SessionRecorder.shared.recordingFormat(for: tabID) ?? settings.sessionRecordingFormat
+        let panel = NSSavePanel()
+        if format == .asciinema, let castType = UTType(filenameExtension: "cast") {
+            panel.allowedContentTypes = [castType]
+        } else {
+            panel.allowedContentTypes = [.plainText]
+        }
+        panel.nameFieldStringValue = sourceURL.lastPathComponent
+        panel.title = "Export Session Recording"
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        do {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destination)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func configureSessionRecording(from settings: AppSettings) {
+        SessionRecorder.shared.configure(
+            enabled: settings.sessionRecordingEnabled,
+            format: settings.sessionRecordingFormat
+        )
+    }
+
+    @discardableResult
+    func checkForUpdates(userInitiated: Bool) async -> Bool {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        if let info = await UpdateChecker.fetchUpdateInfo(
+            currentVersion: version,
+            repository: settings.updateRepository
+        ) {
+            pendingUpdate = info
+            updateAvailableURL = info.downloadURL
+            if userInitiated {
+                openPendingUpdate()
+            } else {
+                showUpdatePrompt = true
+            }
+            return true
+        }
+        pendingUpdate = nil
+        updateAvailableURL = nil
+        if userInitiated {
+            errorMessage = "You are running the latest version."
+        }
+        return false
+    }
+
+    func openPendingUpdate() {
+        guard let urlString = pendingUpdate?.downloadURL ?? updateAvailableURL,
+              let url = URL(string: urlString) else { return }
+        NSWorkspace.shared.open(url)
+        dismissUpdatePrompt()
+    }
+
+    func dismissUpdatePrompt() {
+        showUpdatePrompt = false
     }
 
     private func configureTabLifecycleMonitoring(from settings: AppSettings) {
@@ -428,10 +616,10 @@ final class AppState: ObservableObject {
     }
 
     func attachTab(_ tabID: UUID) {
-        guard let index = detachedTabs.firstIndex(where: { $0.id == tabID }) else { return }
-        var tab = detachedTabs.remove(at: index)
+        guard let index = tabWorkspace.detachedTabs.firstIndex(where: { $0.id == tabID }) else { return }
+        var tab = tabWorkspace.detachedTabs.remove(at: index)
         tab.isDetached = false
-        tabs.append(tab)
+        tabWorkspace.tabs.append(tab)
         selectedTabID = tab.id
         saveLaunchState()
     }
@@ -451,11 +639,10 @@ final class AppState: ObservableObject {
             .leaf(tabID: newPaneID)
         )
 
-        if let anchor = splitLayoutAnchor(containing: paneToSplitID),
-           let existing = splitLayouts[anchor] {
+        if let entry = tabWorkspace.splitLayoutEntry(containing: paneToSplitID) {
             setSplitLayout(
-                replacePane(containing: paneToSplitID, in: existing, with: splitNode),
-                anchor: anchor
+                tabWorkspace.replacePane(containing: paneToSplitID, in: entry.layout, with: splitNode),
+                anchor: entry.anchor
             )
         } else {
             setSplitLayout(splitNode, anchor: stripAnchorID)
@@ -473,53 +660,21 @@ final class AppState: ObservableObject {
             isSplitPane: true,
             initScript: profile.initScript
         )
-        tabs.append(tab)
+        tabWorkspace.tabs.append(tab)
         AppLogger.shared.info("Added split pane '\(profile.name)' (\(profile.protocolType.rawValue))")
         saveLaunchState()
         return tab.id
     }
 
-    private func replacePane(
-        containing tabID: UUID,
-        in node: SplitLayoutNode,
-        with replacement: SplitLayoutNode
-    ) -> SplitLayoutNode {
-        if node.tabID == tabID {
-            return replacement
-        }
-        guard node.children.count == 2 else { return node }
-        var updated = node
-        updated.children[0] = replacePane(containing: tabID, in: node.children[0], with: replacement)
-        updated.children[1] = replacePane(containing: tabID, in: node.children[1], with: replacement)
-        return updated
-    }
-
-    private func removeTabFromLayout(_ tabID: UUID, in node: SplitLayoutNode) -> SplitLayoutNode? {
-        if node.tabID == tabID { return nil }
-        guard node.children.count == 2 else { return node }
-        let left = removeTabFromLayout(tabID, in: node.children[0])
-        let right = removeTabFromLayout(tabID, in: node.children[1])
-        switch (left, right) {
-        case (nil, nil):
-            return nil
-        case (nil, let right?):
-            return right
-        case (let left?, nil):
-            return left
-        case (let left?, let right?):
-            return SplitLayoutNode(orientation: node.orientation, children: [left, right], ratio: node.ratio)
-        }
-    }
-
     func updateTabSessionState(tabID: UUID, state: TabSessionState, exitCode: Int32? = nil) {
-        if let index = tabs.firstIndex(where: { $0.id == tabID }) {
-            tabs[index].sessionState = state
-            tabs[index].exitCode = exitCode
-            handleSessionStateSideEffects(tab: tabs[index], state: state)
-        } else if let index = detachedTabs.firstIndex(where: { $0.id == tabID }) {
-            detachedTabs[index].sessionState = state
-            detachedTabs[index].exitCode = exitCode
-            handleSessionStateSideEffects(tab: detachedTabs[index], state: state)
+        if let index = tabWorkspace.tabs.firstIndex(where: { $0.id == tabID }) {
+            tabWorkspace.tabs[index].sessionState = state
+            tabWorkspace.tabs[index].exitCode = exitCode
+            handleSessionStateSideEffects(tab: tabWorkspace.tabs[index], state: state)
+        } else if let index = tabWorkspace.detachedTabs.firstIndex(where: { $0.id == tabID }) {
+            tabWorkspace.detachedTabs[index].sessionState = state
+            tabWorkspace.detachedTabs[index].exitCode = exitCode
+            handleSessionStateSideEffects(tab: tabWorkspace.detachedTabs[index], state: state)
         }
         saveLaunchState()
     }
@@ -533,7 +688,7 @@ final class AppState: ObservableObject {
     }
 
     func reconnectTab(_ tabID: UUID) {
-        guard tabs.contains(where: { $0.id == tabID }) else { return }
+        guard tabWorkspace.tabs.contains(where: { $0.id == tabID }) else { return }
         terminalStore.remove(tabID: tabID)
         updateTabSessionState(tabID: tabID, state: .idle, exitCode: nil)
         tabPendingReconnect = nil
@@ -571,7 +726,7 @@ final class AppState: ObservableObject {
     func broadcastEligibleTabIDs(from tabIDs: [UUID]) -> [UUID] {
         tabIDs.filter { tabID in
             guard broadcastManager.hasHandler(for: tabID),
-                  let tab = (tabs + detachedTabs).first(where: { $0.id == tabID }) else {
+                  let tab = (tabWorkspace.tabs + tabWorkspace.detachedTabs).first(where: { $0.id == tabID }) else {
                 return false
             }
             switch tab.sessionState {
@@ -605,7 +760,7 @@ final class AppState: ObservableObject {
 
     private func buildLaunchState() -> LaunchState {
         var tabToProfile: [UUID: UUID] = [:]
-        for tab in tabs {
+        for tab in tabWorkspace.tabs {
             if let profileID = tab.profile?.id {
                 tabToProfile[tab.id] = profileID
             }
@@ -613,11 +768,11 @@ final class AppState: ObservableObject {
 
         let profileIDs = stripTabs.compactMap(\.profile?.id)
         let selectedProfileID = selectedTabID.flatMap { id in
-            tabs.first(where: { $0.id == id })?.profile?.id
+            tabWorkspace.tabs.first(where: { $0.id == id })?.profile?.id
         }
 
         var savedLayouts: [UUID: SplitLayoutNode] = [:]
-        for (anchorTabID, layout) in splitLayouts {
+        for (anchorTabID, layout) in tabWorkspace.splitLayouts {
             guard let anchorProfileID = tabToProfile[anchorTabID] else { continue }
             savedLayouts[anchorProfileID] = mapLayoutTabIDs(layout, using: { tabToProfile[$0] ?? $0 })
         }
@@ -762,10 +917,10 @@ final class AppState: ObservableObject {
     @discardableResult
     func updateSessionProfile(_ profile: SessionProfile) -> Bool {
         guard configStore.updateSession(profile) else { return false }
-        for index in tabs.indices where tabs[index].profile?.id == profile.id {
-            tabs[index].title = profile.name
-            tabs[index].profile = profile
-            tabs[index].initScript = profile.initScript
+        for index in tabWorkspace.tabs.indices where tabWorkspace.tabs[index].profile?.id == profile.id {
+            tabWorkspace.tabs[index].title = profile.name
+            tabWorkspace.tabs[index].profile = profile
+            tabWorkspace.tabs[index].initScript = profile.initScript
         }
         return true
     }

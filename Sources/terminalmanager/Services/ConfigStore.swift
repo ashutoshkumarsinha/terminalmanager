@@ -791,7 +791,9 @@ final class ConfigStore: ObservableObject {
             return
         }
         do {
-            settings = try TomlConfigCodec.decode(from: url)
+            var loaded = try TomlConfigCodec.decode(from: url)
+            ConfigMigration.migrate(&loaded)
+            settings = loaded
             applyLoggerSettings()
         } catch {
             AppLogger.shared.error("Failed to load config.toml: \(error)")
@@ -879,8 +881,9 @@ final class ConfigStore: ObservableObject {
         for item in items {
             switch item {
             case .session(var profile):
-                let didMigrate = SSHAuthHelper.migratePasswordToKeychain(for: &profile)
-                await onEach(didMigrate)
+                let passwordMigrated = SSHAuthHelper.migratePasswordToKeychain(for: &profile)
+                let notesMigrated = SessionNotesHelper.migrateNotesToKeychain(for: &profile)
+                await onEach(passwordMigrated || notesMigrated)
                 result.append(.session(profile))
             case .folder(var folder):
                 folder.children = await migratePasswordsIncremental(folder.children, onEach: onEach)
@@ -977,6 +980,10 @@ final class ConfigStore: ObservableObject {
                     SSHAuthHelper.storePassword(profile.password, for: profile.id)
                     profile.password = ""
                 }
+                if profile.notesInKeychain, !profile.notes.isEmpty {
+                    try? SessionNotesHelper.storeNotes(profile.notes, for: profile.id)
+                    profile.notes = ""
+                }
                 return .session(profile)
             case .folder(var folder):
                 folder.children = persistPasswords(in: folder.children)
@@ -993,6 +1000,9 @@ final class ConfigStore: ObservableObject {
             switch item {
             case .session(var profile):
                 if SSHAuthHelper.migratePasswordToKeychain(for: &profile) {
+                    migrated = true
+                }
+                if SessionNotesHelper.migrateNotesToKeychain(for: &profile) {
                     migrated = true
                 }
                 return .session(profile)

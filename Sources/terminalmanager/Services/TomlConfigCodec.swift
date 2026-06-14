@@ -12,6 +12,15 @@ enum TomlConfigCodec {
         var performance: PerformanceTable?
         var shortcuts: [ShortcutTable]
         var templates: [TemplateTable]?
+        var bastions: [BastionTable]?
+
+        struct BastionTable: Codable {
+            var id: UUID
+            var name: String
+            var host: String
+            var username: String?
+            var port: Int?
+        }
 
         struct AppTable: Codable {
             var version: Int
@@ -103,6 +112,15 @@ enum TomlConfigCodec {
             var staggerTabRestoreBatchSize: Int?
             var findDebounceMs: Int?
             var broadcastBatchDelayMs: Int?
+            var configSchemaVersion: Int?
+            var copyOnSelect: Bool?
+            var pasteOnMiddleClick: Bool?
+            var staleTabMinutes: Int?
+            var sessionRecordingEnabled: Bool?
+            var sessionRecordingFormat: String?
+            var checkForUpdates: Bool?
+            var updateRepository: String?
+            var ansiPalette: ANSIPaletteTable?
 
             enum CodingKeys: String, CodingKey {
                 case launchStateDebounceMs = "launch_state_debounce_ms"
@@ -116,7 +134,27 @@ enum TomlConfigCodec {
                 case staggerTabRestoreBatchSize = "stagger_tab_restore_batch_size"
                 case findDebounceMs = "find_debounce_ms"
                 case broadcastBatchDelayMs = "broadcast_batch_delay_ms"
+                case configSchemaVersion = "config_schema_version"
+                case copyOnSelect = "copy_on_select"
+                case pasteOnMiddleClick = "paste_on_middle_click"
+                case staleTabMinutes = "stale_tab_minutes"
+                case sessionRecordingEnabled = "session_recording_enabled"
+                case sessionRecordingFormat = "session_recording_format"
+                case checkForUpdates = "check_for_updates"
+                case updateRepository = "update_repository"
+                case ansiPalette = "ansi_palette"
             }
+        }
+
+        struct ANSIPaletteTable: Codable {
+            var black: String?
+            var red: String?
+            var green: String?
+            var yellow: String?
+            var blue: String?
+            var magenta: String?
+            var cyan: String?
+            var white: String?
         }
 
         struct TemplateTable: Codable {
@@ -213,7 +251,30 @@ enum TomlConfigCodec {
             staggerTabRestore: performance?.staggerTabRestore ?? defaults.staggerTabRestore,
             staggerTabRestoreBatchSize: performance?.staggerTabRestoreBatchSize ?? defaults.staggerTabRestoreBatchSize,
             findDebounceMs: performance?.findDebounceMs ?? defaults.findDebounceMs,
-            broadcastBatchDelayMs: performance?.broadcastBatchDelayMs ?? defaults.broadcastBatchDelayMs
+            broadcastBatchDelayMs: performance?.broadcastBatchDelayMs ?? defaults.broadcastBatchDelayMs,
+            configSchemaVersion: performance?.configSchemaVersion ?? defaults.configSchemaVersion,
+            copyOnSelect: performance?.copyOnSelect ?? defaults.copyOnSelect,
+            pasteOnMiddleClick: performance?.pasteOnMiddleClick ?? defaults.pasteOnMiddleClick,
+            staleTabMinutes: performance?.staleTabMinutes ?? defaults.staleTabMinutes,
+            sessionRecordingEnabled: performance?.sessionRecordingEnabled ?? defaults.sessionRecordingEnabled,
+            sessionRecordingFormat: SessionRecordingFormat(rawValue: performance?.sessionRecordingFormat ?? "") ?? defaults.sessionRecordingFormat,
+            checkForUpdates: performance?.checkForUpdates ?? defaults.checkForUpdates,
+            updateRepository: performance?.updateRepository ?? defaults.updateRepository,
+            bastionProfiles: (root.bastions ?? []).map { BastionProfile(id: $0.id, name: $0.name, host: $0.host, username: $0.username ?? "", port: $0.port ?? 22) },
+            ansiPalette: performance?.ansiPalette.flatMap { decodePalette($0) } ?? defaults.ansiPalette
+        )
+    }
+
+    private static func decodePalette(_ table: TomlRoot.ANSIPaletteTable) -> ANSIPalette? {
+        ANSIPalette(
+            black: table.black ?? ANSIPalette.default.black,
+            red: table.red ?? ANSIPalette.default.red,
+            green: table.green ?? ANSIPalette.default.green,
+            yellow: table.yellow ?? ANSIPalette.default.yellow,
+            blue: table.blue ?? ANSIPalette.default.blue,
+            magenta: table.magenta ?? ANSIPalette.default.magenta,
+            cyan: table.cyan ?? ANSIPalette.default.cyan,
+            white: table.white ?? ANSIPalette.default.white
         )
     }
 
@@ -272,7 +333,23 @@ enum TomlConfigCodec {
             shortcuts: settings.keyboardShortcuts.map {
                 .init(id: $0.id, key: $0.key, modifiers: $0.modifiers)
             },
-            templates: settings.sessionTemplates.isEmpty ? nil : settings.sessionTemplates.map { templateTable(from: $0) }
+            templates: settings.sessionTemplates.isEmpty ? nil : settings.sessionTemplates.map { templateTable(from: $0) },
+            bastions: settings.bastionProfiles.isEmpty ? nil : settings.bastionProfiles.map {
+                .init(id: $0.id, name: $0.name, host: $0.host, username: $0.username.isEmpty ? nil : $0.username, port: $0.port == 22 ? nil : $0.port)
+            }
+        )
+    }
+
+    private static func ansiPaletteTable(from palette: ANSIPalette) -> TomlRoot.ANSIPaletteTable {
+        TomlRoot.ANSIPaletteTable(
+            black: palette.black == ANSIPalette.default.black ? nil : palette.black,
+            red: palette.red == ANSIPalette.default.red ? nil : palette.red,
+            green: palette.green == ANSIPalette.default.green ? nil : palette.green,
+            yellow: palette.yellow == ANSIPalette.default.yellow ? nil : palette.yellow,
+            blue: palette.blue == ANSIPalette.default.blue ? nil : palette.blue,
+            magenta: palette.magenta == ANSIPalette.default.magenta ? nil : palette.magenta,
+            cyan: palette.cyan == ANSIPalette.default.cyan ? nil : palette.cyan,
+            white: palette.white == ANSIPalette.default.white ? nil : palette.white
         )
     }
 
@@ -300,7 +377,22 @@ enum TomlConfigCodec {
             findDebounceMs: settings.findDebounceMs == defaults.findDebounceMs
                 ? nil : settings.findDebounceMs,
             broadcastBatchDelayMs: settings.broadcastBatchDelayMs == defaults.broadcastBatchDelayMs
-                ? nil : settings.broadcastBatchDelayMs
+                ? nil : settings.broadcastBatchDelayMs,
+            configSchemaVersion: settings.configSchemaVersion == defaults.configSchemaVersion
+                ? nil : settings.configSchemaVersion,
+            copyOnSelect: settings.copyOnSelect == defaults.copyOnSelect ? nil : settings.copyOnSelect,
+            pasteOnMiddleClick: settings.pasteOnMiddleClick == defaults.pasteOnMiddleClick ? nil : settings.pasteOnMiddleClick,
+            staleTabMinutes: settings.staleTabMinutes == defaults.staleTabMinutes ? nil : settings.staleTabMinutes,
+            sessionRecordingEnabled: settings.sessionRecordingEnabled == defaults.sessionRecordingEnabled
+                ? nil : settings.sessionRecordingEnabled,
+            sessionRecordingFormat: settings.sessionRecordingFormat == defaults.sessionRecordingFormat
+                ? nil : settings.sessionRecordingFormat.rawValue,
+            checkForUpdates: settings.checkForUpdates == defaults.checkForUpdates ? nil : settings.checkForUpdates,
+            updateRepository: settings.updateRepository == defaults.updateRepository ? nil : settings.updateRepository,
+            ansiPalette: {
+                guard let palette = settings.ansiPalette, palette != ANSIPalette.default else { return nil }
+                return ansiPaletteTable(from: palette)
+            }()
         )
         if table.launchStateDebounceMs == nil,
            table.sidebarSearchDebounceMs == nil,
@@ -312,7 +404,16 @@ enum TomlConfigCodec {
            table.staggerTabRestore == nil,
            table.staggerTabRestoreBatchSize == nil,
            table.findDebounceMs == nil,
-           table.broadcastBatchDelayMs == nil {
+           table.broadcastBatchDelayMs == nil,
+           table.configSchemaVersion == nil,
+           table.copyOnSelect == nil,
+           table.pasteOnMiddleClick == nil,
+           table.staleTabMinutes == nil,
+           table.sessionRecordingEnabled == nil,
+           table.sessionRecordingFormat == nil,
+           table.checkForUpdates == nil,
+           table.updateRepository == nil,
+           table.ansiPalette == nil {
             return nil
         }
         return table

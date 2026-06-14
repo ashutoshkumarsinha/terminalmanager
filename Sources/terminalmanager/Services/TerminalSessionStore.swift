@@ -53,6 +53,9 @@ final class TerminalSessionStore {
 
         terminal.optionAsMetaKey = true
         terminal.allowMouseReporting = true
+        terminal.copyOnSelect = settings.copyOnSelect
+        terminal.pasteOnMiddleClick = settings.pasteOnMiddleClick
+        ANSIPaletteCodec.apply(settings.ansiPalette, to: terminal)
         applyScrollbackLimit(terminal, settings: settings)
     }
 
@@ -90,5 +93,19 @@ final class TerminalSessionStore {
 
     func hasTerminal(tabID: UUID) -> Bool {
         terminals[tabID] != nil
+    }
+
+    func exportScrollback(tabID: UUID, to url: URL) throws {
+        guard let terminal = terminals[tabID] else {
+            throw TranscriptExporter.ExportError.noSelection
+        }
+        try TranscriptExporter.exportScrollback(from: terminal, to: url)
+    }
+
+    func exportSelection(tabID: UUID, to url: URL) throws {
+        guard let terminal = terminals[tabID] else {
+            throw TranscriptExporter.ExportError.noSelection
+        }
+        try TranscriptExporter.exportSelection(from: terminal, to: url)
     }
 }

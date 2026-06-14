@@ -18,5 +18,11 @@ jobs:
       - name: Test
         run: swift test
 
+      - name: GUI smoke (CLI)
+        run: swift test --filter ProcessLaunchSmokeTests
+
+      - name: UI tests (XCUITest)
+        run: bash scripts/run-ui-tests.sh
+
       - name: Package app
         run: bash scripts/package-app.sh release

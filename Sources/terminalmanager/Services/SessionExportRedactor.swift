@@ -8,6 +8,10 @@ enum SessionExportRedactor {
     static func redactProfile(_ profile: SessionProfile) -> SessionProfile {
         var copy = profile
         copy.password = ""
+        if copy.notesInKeychain || !copy.notes.isEmpty {
+            copy.notes = ""
+            copy.notesInKeychain = false
+        }
         return copy
     }
 

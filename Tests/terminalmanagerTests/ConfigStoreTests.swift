@@ -97,4 +97,25 @@ final class ConfigStoreTests: TempConfigTestCase {
         XCTAssertEqual(SSHAuthHelper.resolvedPassword(for: duplicate), "copy-me")
         XCTAssertEqual(duplicate.password, "")
     }
+
+    func testExportSessionsRedactsKeychainNotes() throws {
+        let store = ConfigStore()
+        var profile = makeSession(name: "Notes", host: "host01")
+        profile.notes = "secret runbook"
+        profile.notesInKeychain = true
+        _ = store.addSession(profile)
+
+        let exportURL = tempConfigDirectory.appendingPathComponent("export-notes.json")
+        try store.exportSessions(to: exportURL, redactSecrets: true)
+
+        let data = try Data(contentsOf: exportURL)
+        let config = try JSONDecoder().decode(SessionConfiguration.self, from: data)
+        guard case .session(let exported) = config.sessionTree[0] else {
+            return XCTFail("Expected session")
+        }
+        XCTAssertEqual(exported.notes, "")
+        XCTAssertFalse(exported.notesInKeychain)
+
+        try SessionNotesHelper.deleteNotes(for: profile.id)
+    }
 }

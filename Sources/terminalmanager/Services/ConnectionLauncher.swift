@@ -33,18 +33,36 @@ struct ConnectionCommand: Hashable {
 }
 
 enum ConnectionLauncher {
-    static func command(for profile: SessionProfile) -> ConnectionCommand {
-        switch profile.protocolType {
+    static func command(
+        for profile: SessionProfile,
+        bastions: [BastionProfile] = [],
+        tabOverrides: (remoteEnvironment: String?, remoteWorkingDirectory: String?)? = nil
+    ) -> ConnectionCommand {
+        var resolved = profile
+        if resolved.proxyJump?.isEmpty != false,
+           let bastionID = profile.bastionProfileID,
+           let bastion = bastions.first(where: { $0.id == bastionID }) {
+            resolved.proxyJump = bastion.jumpSpec
+        }
+        if let tabOverrides {
+            if let env = tabOverrides.remoteEnvironment, !env.isEmpty {
+                resolved.remoteEnvironment = env
+            }
+            if let cwd = tabOverrides.remoteWorkingDirectory, !cwd.isEmpty {
+                resolved.remoteWorkingDirectory = cwd
+            }
+        }
+        switch resolved.protocolType {
         case .local:
-            return localShellCommand(profile: profile)
+            return localShellCommand(profile: resolved)
 
         case .ssh:
-            return sshCommand(for: profile)
+            return sshCommand(for: resolved)
 
         case .telnet:
-            let port = profile.port ?? 23
-            let host = profile.host
-            let startup = resolvedStartupCommands(for: profile)
+            let port = resolved.port ?? 23
+            let host = resolved.host
+            let startup = resolvedStartupCommands(for: resolved)
             return ConnectionCommand(
                 executable: "/usr/bin/telnet",
                 arguments: [host, String(port)],
@@ -55,12 +73,12 @@ enum ConnectionLauncher {
 
         case .rlogin:
             var args: [String] = []
-            if let port = profile.port, port != 513 {
+            if let port = resolved.port, port != 513 {
                 args += ["-p", String(port)]
             }
-            let target = profile.username.isEmpty ? profile.host : "\(profile.username)@\(profile.host)"
+            let target = resolved.username.isEmpty ? resolved.host : "\(resolved.username)@\(resolved.host)"
             args.append(target)
-            let startup = resolvedStartupCommands(for: profile)
+            let startup = resolvedStartupCommands(for: resolved)
             return ConnectionCommand(
                 executable: "/usr/bin/rlogin",
                 arguments: args,
@@ -70,16 +88,20 @@ enum ConnectionLauncher {
             )
 
         case .raw:
-            let port = profile.port ?? 23
-            let startup = resolvedStartupCommands(for: profile)
+            let port = resolved.port ?? 23
+            let startup = resolvedStartupCommands(for: resolved)
             return ConnectionCommand(
                 executable: "/usr/bin/nc",
-                arguments: [profile.host, String(port)],
-                displayCommand: "nc \(profile.host) \(port)",
+                arguments: [resolved.host, String(port)],
+                displayCommand: "nc \(resolved.host) \(port)",
                 startupCommands: startup.commands,
                 startupDelay: startup.delay
             )
         }
+    }
+
+    static func command(for profile: SessionProfile) -> ConnectionCommand {
+        command(for: profile, bastions: [], tabOverrides: nil)
     }
 
     static func sftpCommand(for profile: SessionProfile) -> ConnectionCommand? {
@@ -124,8 +146,22 @@ enum ConnectionLauncher {
            let fileLines = loadScriptLines(from: scriptPath) {
             lines.append(contentsOf: fileLines)
         }
+        if let cwd = profile.remoteWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
+            lines.insert("cd \(shellQuote(cwd))", at: 0)
+        }
+        if let envBlock = profile.remoteEnvironment?.trimmingCharacters(in: .whitespacesAndNewlines), !envBlock.isEmpty {
+            for line in envBlock.split(whereSeparator: \.isNewline) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { continue }
+                lines.insert("export \(trimmed)", at: 0)
+            }
+        }
         let delay: TimeInterval = profile.protocolType == .local ? 1.5 : 2.0
         return (lines, lines.isEmpty ? 1.0 : delay)
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     static func initialInput(for profile: SessionProfile) -> String? {
@@ -251,10 +287,6 @@ enum ConnectionLauncher {
             startupCommands: lines,
             startupDelay: startup.delay
         )
-    }
-
-    private static func shellQuote(_ path: String) -> String {
-        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func resolvedDirectory(_ path: String?, fallback: String) -> String {

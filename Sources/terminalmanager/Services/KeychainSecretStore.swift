@@ -10,10 +10,21 @@ enum KeychainSecretStore {
     }
 
     static func store(password: String, for profileID: UUID) throws {
-        let account = profileID.uuidString
-        let data = Data(password.utf8)
+        try store(secret: password, account: profileID.uuidString)
+    }
+
+    static func load(for profileID: UUID) -> String? {
+        load(account: profileID.uuidString)
+    }
+
+    static func delete(for profileID: UUID) throws {
+        try delete(account: profileID.uuidString)
+    }
+
+    static func store(secret: String, account: String) throws {
+        let data = Data(secret.utf8)
         guard !data.isEmpty else {
-            try delete(for: profileID)
+            try delete(account: account)
             return
         }
 
@@ -45,11 +56,11 @@ enum KeychainSecretStore {
         throw KeychainError.unexpectedStatus(status)
     }
 
-    static func load(for profileID: UUID) -> String? {
+    static func load(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: profileID.uuidString,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -62,11 +73,11 @@ enum KeychainSecretStore {
         return String(data: data, encoding: .utf8)
     }
 
-    static func delete(for profileID: UUID) throws {
+    static func delete(account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: profileID.uuidString
+            kSecAttrAccount as String: account
         ]
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {

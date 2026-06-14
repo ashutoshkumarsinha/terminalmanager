@@ -3,37 +3,53 @@ import SwiftUI
 struct SessionSidebarView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var configStore: ConfigStore
+    @EnvironmentObject private var sessionLibrary: SessionLibraryState
 
-    @State private var selectedItemID: UUID?
-    @State private var expandedFolderIDs: Set<UUID> = []
-    @State private var expandedGroupIDs: Set<UUID> = []
     @State private var editingSession: SessionProfile?
     @State private var renamingFolder: SessionFolder?
     @State private var renamingGroup: SessionGroup?
     @State private var showSaveGroupSheet = false
     @State private var itemPendingDeletion: SessionTreeItem?
-    @State private var searchText = ""
-    @State private var debouncedSearchText = ""
-    @State private var searchDebounceTask: Task<Void, Never>?
     @State private var connectionTestMessage: String?
     @State private var sftpBrowseProfile: SessionProfile?
 
+    private var selectedItemBinding: Binding<UUID?> {
+        Binding(
+            get: { sessionLibrary.selectionID },
+            set: { sessionLibrary.selectionID = $0 }
+        )
+    }
+
+    private var expandedFolderBinding: Binding<Set<UUID>> {
+        Binding(
+            get: { sessionLibrary.expandedFolderIDs },
+            set: { sessionLibrary.expandedFolderIDs = $0 }
+        )
+    }
+
+    private var expandedGroupBinding: Binding<Set<UUID>> {
+        Binding(
+            get: { sessionLibrary.expandedGroupIDs },
+            set: { sessionLibrary.expandedGroupIDs = $0 }
+        )
+    }
+
     private var isSearching: Bool {
-        !debouncedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        sessionLibrary.isSearching
     }
 
     private var filteredTree: [SessionTreeItem] {
-        configStore.filteredSessionTree(query: debouncedSearchText)
+        configStore.filteredSessionTree(query: sessionLibrary.debouncedSearchText)
     }
 
     private var displayRows: [SessionSidebarFlatRow] {
         let tree = isSearching ? filteredTree : configStore.sessionTree
         let folderExpansion = isSearching
             ? SessionSidebarFlatRowBuilder.allFolderIDs(in: tree)
-            : expandedFolderIDs
+            : sessionLibrary.expandedFolderIDs
         let groupExpansion = isSearching
             ? SessionSidebarFlatRowBuilder.allGroupIDs(in: tree)
-            : expandedGroupIDs
+            : sessionLibrary.expandedGroupIDs
         return SessionSidebarFlatRowBuilder.build(
             from: tree,
             expandedFolderIDs: folderExpansion,
@@ -43,28 +59,33 @@ struct SessionSidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Search sessions…", text: $searchText)
+            TextField("Search sessions…", text: $sessionLibrary.searchText)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Search sessions")
+                .accessibilityIdentifier("session.sidebar.search")
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .onChange(of: searchText) { _, newValue in
-                    scheduleSearchDebounce(to: newValue)
+                .onChange(of: sessionLibrary.searchText) { _, newValue in
+                    sessionLibrary.scheduleSearchDebounce(
+                        to: newValue,
+                        debounceMs: appState.settings.sidebarSearchDebounceMs
+                    )
                 }
                 .onAppear {
-                    debouncedSearchText = searchText
+                    sessionLibrary.syncDebouncedSearchFromText()
                 }
 
             if configStore.sessionsLoadInProgress {
                 ProgressView("Loading sessions…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(selection: $selectedItemID) {
+                List(selection: selectedItemBinding) {
                     ForEach(displayRows) { row in
                         SessionSidebarFlatRowView(
                             row: row,
-                            selectedItemID: $selectedItemID,
-                            expandedFolderIDs: $expandedFolderIDs,
-                            expandedGroupIDs: $expandedGroupIDs,
+                            selectedItemID: selectedItemBinding,
+                            expandedFolderIDs: expandedFolderBinding,
+                            expandedGroupIDs: expandedGroupBinding,
                             onEditSession: { editingSession = $0 },
                             onRenameFolder: { renamingFolder = $0 },
                             onRenameGroup: { renamingGroup = $0 },
@@ -81,13 +102,14 @@ struct SessionSidebarView: View {
                             onUpdateGroupLayout: updateGroupLayout,
                             onCreateEmptyGroup: {
                                 let group = appState.createEmptyGroup()
-                                selectedItemID = group.id
+                                sessionLibrary.selectionID = group.id
                                 renamingGroup = group
                             }
                         )
                     }
                 }
                 .listStyle(.sidebar)
+                .accessibilityIdentifier("session.sidebar")
                 .contextMenu(forSelectionType: UUID.self) { selectedIDs in
                     groupMemberContextMenu(for: selectedIDs)
                 }
@@ -116,12 +138,8 @@ struct SessionSidebarView: View {
         .navigationTitle("Sessions")
         .onAppear {
             configStore.loadSessionsIfNeeded()
-            appState.sessionTreeSelectionID = selectedItemID
         }
-        .onChange(of: selectedItemID) { _, itemID in
-            appState.sessionTreeSelectionID = itemID
-        }
-        .onChange(of: appState.pendingSessionTreeAction) { _, action in
+        .onChange(of: sessionLibrary.pendingAction) { _, action in
             handleSessionTreeAction(action)
         }
         .toolbar {
@@ -158,7 +176,7 @@ struct SessionSidebarView: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
-                .disabled(selectedItemID == nil)
+                .disabled(sessionLibrary.selectionID == nil)
                 .appHelp("Edit selected session, folder, or group")
 
                 if selectedSession != nil {
@@ -186,6 +204,7 @@ struct SessionSidebarView: View {
         .sheet(item: $editingSession) { profile in
             SessionEditorView(
                 profile: profile,
+                bastionProfiles: appState.settings.bastionProfiles,
                 isNameAvailable: { candidate in
                     !configStore.sessionNameExists(candidate, excludingSessionID: profile.id)
                 }
@@ -227,7 +246,7 @@ struct SessionSidebarView: View {
                 }
             ) { name in
                 if let group = appState.saveCurrentTabsAsGroup(name: name) {
-                    selectedItemID = group.id
+                    sessionLibrary.selectionID = group.id
                 }
             }
         }
@@ -242,8 +261,8 @@ struct SessionSidebarView: View {
             Button("Delete", role: .destructive) {
                 if let item = itemPendingDeletion {
                     appState.removeSessionItem(id: item.id)
-                    if selectedItemID == item.id {
-                        selectedItemID = nil
+                    if sessionLibrary.selectionID == item.id {
+                        sessionLibrary.selectionID = nil
                     }
                 }
                 itemPendingDeletion = nil
@@ -264,13 +283,13 @@ struct SessionSidebarView: View {
     }
 
     private var selectedSession: SessionProfile? {
-        guard let selectedItemID else { return nil }
-        return ConfigStore.findSessionProfile(id: selectedItemID, in: configStore.sessionTree)
+        guard let selectionID = sessionLibrary.selectionID else { return nil }
+        return ConfigStore.findSessionProfile(id: selectionID, in: configStore.sessionTree)
     }
 
     private var selectedGroup: SessionGroup? {
-        guard let selectedItemID,
-              let item = configStore.item(withID: selectedItemID),
+        guard let selectionID = sessionLibrary.selectionID,
+              let item = configStore.item(withID: selectionID),
               case .group(let group) = item else {
             return nil
         }
@@ -278,8 +297,8 @@ struct SessionSidebarView: View {
     }
 
     private func beginEditingSelection() {
-        guard let selectedItemID,
-              let item = configStore.item(withID: selectedItemID) else { return }
+        guard let selectionID = sessionLibrary.selectionID,
+              let item = configStore.item(withID: selectionID) else { return }
         switch item {
         case .session(let profile):
             editingSession = profile
@@ -291,13 +310,13 @@ struct SessionSidebarView: View {
     }
 
     private func beginDeletingSelection() {
-        guard let selectedItemID else { return }
-        if let item = configStore.item(withID: selectedItemID) {
+        guard let selectionID = sessionLibrary.selectionID else { return }
+        if let item = configStore.item(withID: selectionID) {
             itemPendingDeletion = item
             return
         }
         if let (groupID, member) = ConfigStore.findGroupMember(
-            id: selectedItemID,
+            id: selectionID,
             in: configStore.sessionTree
         ) {
             deleteGroupMember(groupID: groupID, memberID: member.id)
@@ -306,8 +325,8 @@ struct SessionSidebarView: View {
 
     private func deleteGroupMember(groupID: UUID, memberID: UUID) {
         _ = configStore.removeMemberFromGroup(groupID: groupID, memberID: memberID)
-        if selectedItemID == memberID {
-            selectedItemID = nil
+        if sessionLibrary.selectionID == memberID {
+            sessionLibrary.selectionID = nil
         }
     }
 
@@ -338,7 +357,7 @@ struct SessionSidebarView: View {
 
     private func createFolder() {
         let folder = configStore.addFolder("New Folder")
-        selectedItemID = folder.id
+        sessionLibrary.selectionID = folder.id
         renamingFolder = folder
     }
 
@@ -372,11 +391,7 @@ struct SessionSidebarView: View {
     }
 
     private func expandFolderPath(to folderID: UUID) {
-        var current: UUID? = folderID
-        while let id = current {
-            expandedFolderIDs.insert(id)
-            current = ConfigStore.parentFolderID(of: id, in: configStore.sessionTree)
-        }
+        sessionLibrary.expandFolderPath(to: folderID, using: configStore)
     }
 
     private func duplicateSelectedSession() {
@@ -391,7 +406,7 @@ struct SessionSidebarView: View {
 
     private func duplicateGroup(_ group: SessionGroup) {
         guard let saved = configStore.duplicateGroup(id: group.id) else { return }
-        selectedItemID = saved.id
+        sessionLibrary.selectionID = saved.id
     }
 
     private func duplicateSession(_ profile: SessionProfile) {
@@ -399,7 +414,7 @@ struct SessionSidebarView: View {
         if saved.sshAuthMethod == .password, !saved.password.isEmpty {
             _ = SSHAuthHelper.writeAskpassScript(password: saved.password, profileID: saved.id)
         }
-        selectedItemID = saved.id
+        sessionLibrary.selectionID = saved.id
         editingSession = saved
     }
 
@@ -414,7 +429,7 @@ struct SessionSidebarView: View {
         Button("New Session") { createSession() }
         Button("New Empty Group") {
             let group = appState.createEmptyGroup()
-            selectedItemID = group.id
+            sessionLibrary.selectionID = group.id
             renamingGroup = group
         }
         if let group = selectedGroup {
@@ -446,26 +461,12 @@ struct SessionSidebarView: View {
               let saved = appState.duplicateSessionToFolder(sessionID: profile.id, folderID: folderID) else {
             return
         }
-        selectedItemID = saved.id
+        sessionLibrary.selectionID = saved.id
     }
 
     private func updateGroupLayout(_ group: SessionGroup) {
         if appState.updateGroupLayout(for: group.id) {
             connectionTestMessage = "Updated layout for group \"\(group.name)\"."
-        }
-    }
-
-    private func scheduleSearchDebounce(to value: String) {
-        searchDebounceTask?.cancel()
-        let delayMs = appState.settings.sidebarSearchDebounceMs
-        if delayMs <= 0 {
-            debouncedSearchText = value
-            return
-        }
-        searchDebounceTask = Task {
-            try? await Task.sleep(for: .milliseconds(delayMs))
-            guard !Task.isCancelled else { return }
-            debouncedSearchText = value
         }
     }
 }

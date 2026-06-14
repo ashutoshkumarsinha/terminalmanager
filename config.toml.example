@@ -45,6 +45,27 @@ stagger_tab_restore = true          # restore tabs in batches on launch
 stagger_tab_restore_batch_size = 3
 find_debounce_ms = 200              # debounce ⌘F search input
 broadcast_batch_delay_ms = 15       # delay between broadcast targets (ms)
+config_schema_version = 2           # internal schema version (managed by app)
+copy_on_select = false              # copy selected terminal text to clipboard
+paste_on_middle_click = true        # middle-click pastes clipboard
+stale_tab_minutes = 5               # 0 = off; mark tabs stale without output
+session_recording_enabled = false   # plain-text or asciinema recordings in logs/recordings
+session_recording_format = "plain"  # plain | asciinema
+check_for_updates = true            # check GitHub releases on launch
+update_repository = "terminalmanager/terminalmanager"
+
+# Optional custom ANSI palette (requires non-default colors to persist)
+# [performance.ansi_palette]
+# black = "#000000"
+# red = "#CC0000"
+
+# Reusable SSH bastion / jump-host profiles
+# [[bastions]]
+# id = "00000000-0000-0000-0000-000000000001"
+# name = "Corp Bastion"
+# host = "bastion.example.com"
+# username = "alice"
+# port = 22
 
 [[shortcuts]]
 id = "newTab"

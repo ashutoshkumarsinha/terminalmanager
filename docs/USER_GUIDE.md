@@ -251,9 +251,64 @@ For SSH sessions, enable **Enable SFTP** in the session editor. An arrow icon ap
 |--------|--------|
 | Click arrow icon | Opens **Session Name (SFTP)** in a new embedded tab running `sftp` |
 | Right-click → **SFTP** | Same |
-| Right-click → **Browse SFTP…** | Opens a sheet listing remote directories (`ls` over SFTP) |
+| Right-click → **Browse SFTP…** | Opens a sheet listing remote directories |
+
+**Browse SFTP** supports:
+
+| Action | Result |
+|--------|--------|
+| Click folder | Navigate into directory |
+| **Up** / **Refresh** | Parent directory / reload listing |
+| **Upload** | Pick a local file and upload to current remote path |
+| **Download** (per file) | Save remote file locally |
+| **Bookmarks** menu | Save current folder or jump to a saved path (stored in `sessions.json`) |
 
 SFTP uses the same SSH credentials (agent, password, or private key) as the parent session.
+
+---
+
+## 7.1 Terminal appearance & behavior
+
+### Theme (TB-11)
+
+| Setting | Effect |
+|---------|--------|
+| **System** | Follows macOS light/dark appearance for foreground/background |
+| **Light** | Black text on white background |
+| **Dark** | White text on black background |
+| **Custom ANSI palette** | Optional 8-color override in Settings or `[performance.ansi_palette]` in `config.toml` |
+
+Custom ANSI colors affect terminal escape sequences (red, green, etc.). They do **not** change the window chrome or sidebar — only embedded terminal rendering.
+
+### Copy, paste, and export
+
+| Feature | Config / action |
+|---------|-----------------|
+| Copy on select | Settings → **Copy on select**, or `copy_on_select = true` |
+| Paste on middle-click | Settings → **Paste on middle-click**, or `paste_on_middle_click = true` |
+| Export scrollback | Edit → **Export Terminal Transcript…** |
+| Export selection | Edit → **Export Terminal Selection…** |
+| Export I/O log | Edit → **Export Tab I/O Log…** (from `terminal-io-*.log`, with redaction) |
+| Session recording | Enable **Session recording** in Settings; reveal via Edit → **Reveal Session Recording** |
+
+### Connection health
+
+When **Stale tab indicator** is enabled (`stale_tab_minutes` in config), tabs with no terminal output for that interval show an **orange** status dot while still running.
+
+### Session notes & secrets
+
+In the session editor:
+
+- **Store notes in Keychain** keeps runbook text out of `sessions.json` (like passwords).
+- **Markdown preview** renders inline formatting for notes.
+
+### Bastion profiles
+
+Define reusable jump hosts in Settings → **Bastion Profiles** or `[[bastions]]` in `config.toml`. Pick a bastion in the session editor to set `ProxyJump` automatically.
+
+### Per-tab remote overrides
+
+Right-click a tab → **Remote Overrides…** to set tab-only remote working directory or `export KEY=value` lines (SSH sessions). Overrides apply on the next connection.
 
 ---
 
@@ -294,8 +349,19 @@ Register the app once, then macOS routes `terminalmanager://` URLs to Terminal M
 |------|--------|
 | Duplicate Tab | ⌘D |
 | Next / Previous Tab | ⌘⇧] / ⌘⇧[ |
+| Find in Terminal… | ⌘F |
 | Split Horizontally / Vertically | Split focused tab |
 | Focus Command Bar | ⌘⇧L |
+
+### Edit
+
+| Item | Action |
+|------|--------|
+| Export Terminal Transcript… | Save scrollback from active tab |
+| Export Terminal Selection… | Save selected terminal text |
+| Export Tab I/O Log… | Export filtered `terminal-io-*.log` lines for active tab |
+| Reveal Session Recording | Show plain-text recording file in Finder |
+| Check for Updates… | Compare against latest GitHub release |
 
 ### View
 
@@ -320,7 +386,13 @@ Open **Terminal Manager → Settings** (⌘,):
 | Setting | Purpose |
 |---------|---------|
 | Show Session Sidebar | Default sidebar visibility |
-| Terminal font / size / theme | Embedded terminal appearance |
+| Terminal font / size / theme | Embedded terminal appearance (see §7.1) |
+| Copy on select / Paste on middle-click | Terminal clipboard behavior |
+| Stale tab indicator | Minutes without output before orange dot |
+| Session recording | Plain-text recordings in `logs/recordings/` |
+| Check for updates | GitHub release check on launch |
+| Bastion profiles | Shared SSH jump hosts |
+| Custom ANSI palette | Optional terminal color overrides |
 | Restore tabs on launch | Reopen tabs from last session |
 | Auto-reconnect | Prompt when a session exits unexpectedly |
 | Log terminal I/O | Write shell traffic to `terminal-io-*.log` |
@@ -386,6 +458,13 @@ file = "sessions.json"
 level = "info"              # debug | info | warning | error
 log_terminal_io = true
 terminal_io_max_mb = 50
+
+[performance]
+copy_on_select = false
+paste_on_middle_click = true
+stale_tab_minutes = 5
+session_recording_enabled = false
+check_for_updates = true
 ```
 
 See `config.toml.example` in the project for the full list.

@@ -62,6 +62,32 @@ enum SSHAuthMethod: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+struct BastionProfile: Identifiable, Codable, Hashable {
+    var id: UUID
+    var name: String
+    var host: String
+    var username: String
+    var port: Int
+
+    init(id: UUID = UUID(), name: String, host: String, username: String = "", port: Int = 22) {
+        self.id = id
+        self.name = name
+        self.host = host
+        self.username = username
+        self.port = port
+    }
+
+    var jumpSpec: String {
+        username.isEmpty ? host : "\(username)@\(host)"
+    }
+}
+
+enum TabConnectionHealth: String, Codable, Hashable {
+    case unknown
+    case healthy
+    case stale
+}
+
 struct SessionProfile: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
@@ -80,6 +106,11 @@ struct SessionProfile: Identifiable, Codable, Hashable {
     var tagColor: String?
     var proxyJump: String?
     var sshExtraOptions: String?
+    var notesInKeychain: Bool
+    var remoteEnvironment: String?
+    var remoteWorkingDirectory: String?
+    var bastionProfileID: UUID?
+    var sftpBookmarks: [String]
 
     init(
         id: UUID = UUID(),
@@ -98,7 +129,12 @@ struct SessionProfile: Identifiable, Codable, Hashable {
         initialDirectory: String? = nil,
         tagColor: String? = nil,
         proxyJump: String? = nil,
-        sshExtraOptions: String? = nil
+        sshExtraOptions: String? = nil,
+        notesInKeychain: Bool = false,
+        remoteEnvironment: String? = nil,
+        remoteWorkingDirectory: String? = nil,
+        bastionProfileID: UUID? = nil,
+        sftpBookmarks: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -117,6 +153,11 @@ struct SessionProfile: Identifiable, Codable, Hashable {
         self.tagColor = tagColor
         self.proxyJump = proxyJump
         self.sshExtraOptions = sshExtraOptions
+        self.notesInKeychain = notesInKeychain
+        self.remoteEnvironment = remoteEnvironment
+        self.remoteWorkingDirectory = remoteWorkingDirectory
+        self.bastionProfileID = bastionProfileID
+        self.sftpBookmarks = sftpBookmarks
     }
 
     enum CodingKeys: String, CodingKey {
@@ -125,6 +166,8 @@ struct SessionProfile: Identifiable, Codable, Hashable {
         case initScript, startupScriptPath
         case sftpEnabled, notes, initialDirectory
         case tagColor, proxyJump, sshExtraOptions
+        case notesInKeychain, remoteEnvironment, remoteWorkingDirectory, bastionProfileID
+        case sftpBookmarks
     }
 
     init(from decoder: Decoder) throws {
@@ -146,6 +189,11 @@ struct SessionProfile: Identifiable, Codable, Hashable {
         tagColor = try container.decodeIfPresent(String.self, forKey: .tagColor)
         proxyJump = try container.decodeIfPresent(String.self, forKey: .proxyJump)
         sshExtraOptions = try container.decodeIfPresent(String.self, forKey: .sshExtraOptions)
+        notesInKeychain = try container.decodeIfPresent(Bool.self, forKey: .notesInKeychain) ?? false
+        remoteEnvironment = try container.decodeIfPresent(String.self, forKey: .remoteEnvironment)
+        remoteWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .remoteWorkingDirectory)
+        bastionProfileID = try container.decodeIfPresent(UUID.self, forKey: .bastionProfileID)
+        sftpBookmarks = try container.decodeIfPresent([String].self, forKey: .sftpBookmarks) ?? []
         if port == nil {
             port = protocolType.defaultPort
         }
@@ -351,6 +399,16 @@ struct AppSettings: Equatable {
     var staggerTabRestoreBatchSize: Int
     var findDebounceMs: Int
     var broadcastBatchDelayMs: Int
+    var configSchemaVersion: Int
+    var copyOnSelect: Bool
+    var pasteOnMiddleClick: Bool
+    var staleTabMinutes: Int
+    var sessionRecordingEnabled: Bool
+    var sessionRecordingFormat: SessionRecordingFormat
+    var checkForUpdates: Bool
+    var updateRepository: String
+    var bastionProfiles: [BastionProfile]
+    var ansiPalette: ANSIPalette?
 
     static let defaults = AppSettings(
         version: 1,
@@ -391,7 +449,17 @@ struct AppSettings: Equatable {
         staggerTabRestore: true,
         staggerTabRestoreBatchSize: 3,
         findDebounceMs: 200,
-        broadcastBatchDelayMs: 15
+        broadcastBatchDelayMs: 15,
+        configSchemaVersion: ConfigMigration.currentSchemaVersion,
+        copyOnSelect: false,
+        pasteOnMiddleClick: true,
+        staleTabMinutes: 5,
+        sessionRecordingEnabled: false,
+        sessionRecordingFormat: .plain,
+        checkForUpdates: true,
+        updateRepository: "terminalmanager/terminalmanager",
+        bastionProfiles: [],
+        ansiPalette: nil
     )
 }
 
@@ -425,6 +493,8 @@ struct TerminalTab: Identifiable, Hashable {
     var initScript: String
     var sessionState: TabSessionState
     var exitCode: Int32?
+    var remoteEnvironmentOverride: String?
+    var remoteWorkingDirectoryOverride: String?
 
     init(
         id: UUID = UUID(),
@@ -435,7 +505,9 @@ struct TerminalTab: Identifiable, Hashable {
         isSplitPane: Bool = false,
         initScript: String = "",
         sessionState: TabSessionState = .idle,
-        exitCode: Int32? = nil
+        exitCode: Int32? = nil,
+        remoteEnvironmentOverride: String? = nil,
+        remoteWorkingDirectoryOverride: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -446,6 +518,8 @@ struct TerminalTab: Identifiable, Hashable {
         self.initScript = initScript
         self.sessionState = sessionState
         self.exitCode = exitCode
+        self.remoteEnvironmentOverride = remoteEnvironmentOverride
+        self.remoteWorkingDirectoryOverride = remoteWorkingDirectoryOverride
     }
 }
 

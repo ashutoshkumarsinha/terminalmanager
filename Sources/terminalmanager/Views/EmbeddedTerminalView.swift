@@ -5,11 +5,17 @@ import SwiftTerm
 struct EmbeddedTerminalView: NSViewRepresentable {
     let tabID: UUID
     let profile: SessionProfile
+    let tab: TerminalTab
     let overrideCommand: ConnectionCommand?
     let isActive: Bool
+    let bastionProfiles: [BastionProfile]
+    let copyOnSelect: Bool
+    let pasteOnMiddleClick: Bool
+    let ansiPalette: ANSIPalette?
     let terminalStore: TerminalSessionStore
     let onSendInput: ((@escaping (String) -> Void) -> Void)?
     let onSessionStateChange: ((TabSessionState, Int32?) -> Void)?
+    let onOutputReceived: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -22,7 +28,12 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> TerminalContainerView {
         let container = TerminalContainerView()
         container.coordinator = context.coordinator
-        context.coordinator.attach(container: container, profile: profile, overrideCommand: overrideCommand)
+        context.coordinator.attach(container: container, profile: profile, tab: tab, overrideCommand: overrideCommand)
+        context.coordinator.bastionProfiles = bastionProfiles
+        context.coordinator.copyOnSelect = copyOnSelect
+        context.coordinator.pasteOnMiddleClick = pasteOnMiddleClick
+        context.coordinator.ansiPalette = ansiPalette
+        context.coordinator.onOutputReceived = onOutputReceived
         context.coordinator.isActive = isActive
         context.coordinator.onSendInput = onSendInput
         context.coordinator.reattachIfNeeded()
@@ -35,7 +46,13 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         let profileChanged = coordinator.profile?.id != profile.id
 
         coordinator.profile = profile
+        coordinator.tab = tab
         coordinator.overrideCommand = overrideCommand
+        coordinator.bastionProfiles = bastionProfiles
+        coordinator.copyOnSelect = copyOnSelect
+        coordinator.pasteOnMiddleClick = pasteOnMiddleClick
+        coordinator.ansiPalette = ansiPalette
+        coordinator.onOutputReceived = onOutputReceived
         coordinator.isActive = isActive
         coordinator.onSendInput = onSendInput
         terminalStore.updateSessionLabel(tabID: tabID, name: profile.name)
@@ -58,9 +75,15 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         let onSessionStateChange: ((TabSessionState, Int32?) -> Void)?
         weak var container: TerminalContainerView?
         var profile: SessionProfile?
+        var tab: TerminalTab?
         var overrideCommand: ConnectionCommand?
+        var bastionProfiles: [BastionProfile] = []
+        var copyOnSelect = false
+        var pasteOnMiddleClick = true
+        var ansiPalette: ANSIPalette?
         var isActive = false
         var onSendInput: ((@escaping (String) -> Void) -> Void)?
+        var onOutputReceived: (() -> Void)?
         private var didRegisterHandler = false
         private var pendingStart = false
 
@@ -74,9 +97,10 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             self.onSessionStateChange = onSessionStateChange
         }
 
-        func attach(container: TerminalContainerView, profile: SessionProfile, overrideCommand: ConnectionCommand?) {
+        func attach(container: TerminalContainerView, profile: SessionProfile, tab: TerminalTab, overrideCommand: ConnectionCommand?) {
             self.container = container
             self.profile = profile
+            self.tab = tab
             self.overrideCommand = overrideCommand
             terminalStore.updateSessionLabel(tabID: tabID, name: profile.name)
         }
@@ -98,6 +122,12 @@ struct EmbeddedTerminalView: NSViewRepresentable {
                 container.addSubview(terminal)
             }
             terminal.processDelegate = self
+            terminal.copyOnSelect = copyOnSelect
+            terminal.pasteOnMiddleClick = pasteOnMiddleClick
+            ANSIPaletteCodec.apply(ansiPalette, to: terminal)
+            terminal.onOutputReceived = { [weak self] _ in
+                self?.onOutputReceived?()
+            }
             terminal.onProcessTerminated = { [weak self] exitCode in
                 self?.onSessionStateChange?(.exited, exitCode)
             }
@@ -115,7 +145,17 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             guard let terminal = container.terminal, !terminalStore.isRunning(tabID: tabID) else { return }
 
             terminal.layoutSubtreeIfNeeded()
-            let command = overrideCommand ?? ConnectionLauncher.command(for: profile)
+            let tabOverrides = tab.map {
+                (
+                    remoteEnvironment: $0.remoteEnvironmentOverride,
+                    remoteWorkingDirectory: $0.remoteWorkingDirectoryOverride
+                )
+            }
+            let command = overrideCommand ?? ConnectionLauncher.command(
+                for: profile,
+                bastions: bastionProfiles,
+                tabOverrides: tabOverrides
+            )
             terminal.startProcess(
                 executable: command.executable,
                 args: command.arguments,
@@ -217,6 +257,9 @@ final class TerminalContainerView: NSView {
             guard cols != self.lastReportedCols || rows != self.lastReportedRows else { return }
             self.lastReportedCols = cols
             self.lastReportedRows = rows
+            if let tabID = self.coordinator?.tabID {
+                SessionRecorder.shared.updateTerminalSize(tabID: tabID, cols: cols, rows: rows)
+            }
             terminal.sizeChanged(source: terminal, newCols: cols, newRows: rows)
         }
         resizeWorkItem = item
@@ -242,14 +285,22 @@ struct TerminalHostView: View {
                 EmbeddedTerminalView(
                     tabID: tab.id,
                     profile: profile,
+                    tab: tab,
                     overrideCommand: tab.overrideCommand,
                     isActive: isActive,
+                    bastionProfiles: appState.settings.bastionProfiles,
+                    copyOnSelect: appState.settings.copyOnSelect,
+                    pasteOnMiddleClick: appState.settings.pasteOnMiddleClick,
+                    ansiPalette: appState.settings.ansiPalette,
                     terminalStore: appState.terminalStore,
                     onSendInput: { handler in
                         appState.broadcastManager.register(tabID: tab.id, handler: handler)
                     },
                     onSessionStateChange: { state, exitCode in
                         appState.updateTabSessionState(tabID: tab.id, state: state, exitCode: exitCode)
+                    },
+                    onOutputReceived: {
+                        appState.recordTerminalOutput(tabID: tab.id)
                     }
                 )
             } else {

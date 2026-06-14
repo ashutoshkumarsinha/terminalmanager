@@ -45,6 +45,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("-smoke-test") {
+            let code: Int32
+            if Thread.isMainThread {
+                code = MainActor.assumeIsolated { SmokeTestRunner.run() }
+            } else {
+                code = DispatchQueue.main.sync { SmokeTestRunner.run() }
+            }
+            exit(code)
+        }
         if SingleInstanceManager.shouldExitAsDuplicate() {
             exit(0)
         }

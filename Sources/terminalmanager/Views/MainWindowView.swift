@@ -36,22 +36,28 @@ private struct MainWindowConfigurator: NSViewRepresentable {
 
 struct TabStripView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var tabWorkspace: TabWorkspaceState
     @State private var tabIDPendingRename: UUID?
+    @State private var tabIDPendingOverrides: UUID?
     @State private var renameTitle = ""
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                ForEach(appState.stripTabs) { tab in
+                ForEach(tabWorkspace.stripTabs) { tab in
                     TabChipView(
                         tab: tab,
-                        isSelected: appState.isStripTabSelected(tab.id),
+                        connectionHealth: tabWorkspace.connectionHealth[tab.id] ?? .unknown,
+                        isSelected: tabWorkspace.isStripTabSelected(tab.id),
                         onSelect: { appState.selectedTabID = tab.id },
                         onClose: { appState.closeTab(tab.id) },
                         onDetach: { appState.detachTab(tab.id) },
                         onRename: {
                             tabIDPendingRename = tab.id
                             renameTitle = tab.title
+                        },
+                        onRemoteOverrides: {
+                            tabIDPendingOverrides = tab.id
                         },
                         onMoveTab: { draggedID in
                             appState.moveTab(withID: draggedID, before: tab.id)
@@ -69,6 +75,8 @@ struct TabStripView: View {
                         .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("New Tab")
+                .accessibilityIdentifier("tab.strip.new")
                 .appHelp("New Tab")
             }
             .padding(.horizontal, 8)
@@ -93,6 +101,70 @@ struct TabStripView: View {
         } message: {
             Text("Enter a new name for this tab.")
         }
+        .sheet(isPresented: Binding(
+            get: { tabIDPendingOverrides != nil },
+            set: { if !$0 { tabIDPendingOverrides = nil } }
+        )) {
+            if let tabID = tabIDPendingOverrides,
+               let tab = tabWorkspace.tabs.first(where: { $0.id == tabID }) {
+                TabRemoteOverridesView(tab: tab) { env, cwd in
+                    appState.updateTabRemoteOverrides(
+                        tabID: tabID,
+                        remoteEnvironment: env,
+                        remoteWorkingDirectory: cwd
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct TabRemoteOverridesView: View {
+    @Environment(\.dismiss) private var dismiss
+    let tab: TerminalTab
+    let onSave: (String?, String?) -> Void
+
+    @State private var remoteEnvironment: String
+    @State private var remoteWorkingDirectory: String
+
+    init(tab: TerminalTab, onSave: @escaping (String?, String?) -> Void) {
+        self.tab = tab
+        self.onSave = onSave
+        _remoteEnvironment = State(initialValue: tab.remoteEnvironmentOverride ?? "")
+        _remoteWorkingDirectory = State(initialValue: tab.remoteWorkingDirectoryOverride ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Text("Overrides apply to this tab only and take effect on the next connection.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Remote working directory", text: $remoteWorkingDirectory, prompt: Text("/var/www"))
+                TextEditor(text: $remoteEnvironment)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 80)
+                Text("Optional export KEY=value lines, one per line.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Remote Overrides")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let env = remoteEnvironment.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let cwd = remoteWorkingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onSave(env.isEmpty ? nil : env, cwd.isEmpty ? nil : cwd)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .frame(width: 440, height: 320)
     }
 }
 
@@ -112,11 +184,13 @@ private struct TabStripEndDropZone: View {
 
 private struct TabChipView: View {
     let tab: TerminalTab
+    let connectionHealth: TabConnectionHealth
     let isSelected: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let onDetach: () -> Void
     let onRename: () -> Void
+    let onRemoteOverrides: () -> Void
     let onMoveTab: (UUID) -> Void
 
     @State private var isDropTarget = false
@@ -133,6 +207,7 @@ private struct TabChipView: View {
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("tab.strip.chip.\(tab.title)")
             .appHelp("Select \(tab.title). Double-click to rename.")
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded { _ in onRename() }
@@ -158,6 +233,9 @@ private struct TabChipView: View {
         } isTargeted: { isDropTarget = $0 }
         .contextMenu {
             Button("Rename…") { onRename() }
+            if tab.profile?.protocolType == .ssh {
+                Button("Remote Overrides…") { onRemoteOverrides() }
+            }
             Divider()
             Button("Detach Window") { onDetach() }
             Button("Close") { onClose() }
@@ -173,16 +251,24 @@ private struct TabChipView: View {
 
     private var sessionStateColor: Color {
         switch tab.sessionState {
-        case .running: .green
-        case .idle: .gray
-        case .hibernated: .orange
-        case .exited: .red
+        case .running:
+            return connectionHealth == .stale ? Color.orange : Color.green
+        case .idle:
+            return Color.gray
+        case .hibernated:
+            return Color.orange
+        case .exited:
+            return Color.red
         }
     }
 
     private var sessionStateHelp: String {
         switch tab.sessionState {
-        case .running: return "Session running"
+        case .running:
+            if connectionHealth == .stale {
+                return "Session running but no recent output (stale connection)"
+            }
+            return "Session running"
         case .idle: return "Session idle"
         case .hibernated: return "Session hibernated — select tab to reconnect"
         case .exited:
@@ -634,6 +720,23 @@ struct SettingsView: View {
     @State private var maxScrollbackLines: Int = 10_000
     @State private var hibernateInactiveTabsMinutes: Int = 30
     @State private var terminalIOMetadataOnly: Bool = false
+    @State private var copyOnSelect: Bool = false
+    @State private var pasteOnMiddleClick: Bool = true
+    @State private var staleTabMinutes: Int = 5
+    @State private var sessionRecordingEnabled: Bool = false
+    @State private var sessionRecordingFormat: SessionRecordingFormat = .plain
+    @State private var checkForUpdates: Bool = true
+    @State private var updateRepository: String = "terminalmanager/terminalmanager"
+    @State private var bastionProfiles: [BastionProfile] = []
+    @State private var ansiBlack: String = "#000000"
+    @State private var ansiRed: String = "#CC0000"
+    @State private var ansiGreen: String = "#009900"
+    @State private var ansiYellow: String = "#999900"
+    @State private var ansiBlue: String = "#0000CC"
+    @State private var ansiMagenta: String = "#990099"
+    @State private var ansiCyan: String = "#009999"
+    @State private var ansiWhite: String = "#CCCCCC"
+    @State private var useCustomANSIPalette: Bool = false
     @State private var exportRedactSecrets: Bool = true
     @State private var templates: [SessionTemplate] = []
     @State private var passphrasePrompt: PassphrasePrompt?
@@ -676,6 +779,66 @@ struct SettingsView: View {
                     } else {
                         Text("Hibernate inactive tabs after \(hibernateInactiveTabsMinutes) min")
                     }
+                }
+                Stepper(value: $staleTabMinutes, in: 0...120, step: 1) {
+                    if staleTabMinutes == 0 {
+                        Text("Stale tab indicator: off")
+                    } else {
+                        Text("Mark tabs stale after \(staleTabMinutes) min without output")
+                    }
+                }
+            }
+
+            Section("Terminal Behavior") {
+                Toggle("Copy on select", isOn: $copyOnSelect)
+                Toggle("Paste on middle-click", isOn: $pasteOnMiddleClick)
+                Toggle("Session recording", isOn: $sessionRecordingEnabled)
+                if sessionRecordingEnabled {
+                    Picker("Recording format", selection: $sessionRecordingFormat) {
+                        ForEach(SessionRecordingFormat.allCases) { format in
+                            Text(format.displayName).tag(format)
+                        }
+                    }
+                }
+                Toggle("Custom ANSI palette", isOn: $useCustomANSIPalette)
+                if useCustomANSIPalette {
+                    TextField("Black", text: $ansiBlack)
+                    TextField("Red", text: $ansiRed)
+                    TextField("Green", text: $ansiGreen)
+                    TextField("Yellow", text: $ansiYellow)
+                    TextField("Blue", text: $ansiBlue)
+                    TextField("Magenta", text: $ansiMagenta)
+                    TextField("Cyan", text: $ansiCyan)
+                    TextField("White", text: $ansiWhite)
+                }
+            }
+
+            Section("Updates") {
+                Toggle("Check for updates on launch", isOn: $checkForUpdates)
+                TextField("GitHub repository (owner/name)", text: $updateRepository)
+                Button("Check for Updates Now…") {
+                    Task { await appState.checkForUpdates(userInitiated: true) }
+                }
+            }
+
+            Section("Bastion Profiles") {
+                if bastionProfiles.isEmpty {
+                    Text("No bastion profiles configured.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach($bastionProfiles) { $bastion in
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField("Name", text: $bastion.name)
+                            TextField("Host", text: $bastion.host)
+                            TextField("Username", text: $bastion.username)
+                        }
+                    }
+                    .onDelete { indexSet in
+                        bastionProfiles.remove(atOffsets: indexSet)
+                    }
+                }
+                Button("Add Bastion Profile") {
+                    bastionProfiles.append(BastionProfile(name: "Bastion", host: "bastion.example.com"))
                 }
             }
 
@@ -781,6 +944,27 @@ struct SettingsView: View {
         maxScrollbackLines = settings.maxScrollbackLines
         hibernateInactiveTabsMinutes = settings.hibernateInactiveTabsMinutes
         terminalIOMetadataOnly = settings.terminalIOMetadataOnly
+        copyOnSelect = settings.copyOnSelect
+        pasteOnMiddleClick = settings.pasteOnMiddleClick
+        staleTabMinutes = settings.staleTabMinutes
+        sessionRecordingEnabled = settings.sessionRecordingEnabled
+        sessionRecordingFormat = settings.sessionRecordingFormat
+        checkForUpdates = settings.checkForUpdates
+        updateRepository = settings.updateRepository
+        bastionProfiles = settings.bastionProfiles
+        if let palette = settings.ansiPalette {
+            useCustomANSIPalette = true
+            ansiBlack = palette.black
+            ansiRed = palette.red
+            ansiGreen = palette.green
+            ansiYellow = palette.yellow
+            ansiBlue = palette.blue
+            ansiMagenta = palette.magenta
+            ansiCyan = palette.cyan
+            ansiWhite = palette.white
+        } else {
+            useCustomANSIPalette = false
+        }
         templates = SessionTemplateStore.allTemplates(from: settings)
     }
 
@@ -808,6 +992,26 @@ struct SettingsView: View {
         settings.maxScrollbackLines = maxScrollbackLines
         settings.hibernateInactiveTabsMinutes = hibernateInactiveTabsMinutes
         settings.terminalIOMetadataOnly = terminalIOMetadataOnly
+        settings.copyOnSelect = copyOnSelect
+        settings.pasteOnMiddleClick = pasteOnMiddleClick
+        settings.staleTabMinutes = staleTabMinutes
+        settings.sessionRecordingEnabled = sessionRecordingEnabled
+        settings.sessionRecordingFormat = sessionRecordingFormat
+        settings.checkForUpdates = checkForUpdates
+        settings.updateRepository = updateRepository.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.bastionProfiles = bastionProfiles
+        settings.ansiPalette = useCustomANSIPalette
+            ? ANSIPalette(
+                black: ansiBlack,
+                red: ansiRed,
+                green: ansiGreen,
+                yellow: ansiYellow,
+                blue: ansiBlue,
+                magenta: ansiMagenta,
+                cyan: ansiCyan,
+                white: ansiWhite
+            )
+            : nil
         appState.settings = settings
     }
 
@@ -934,9 +1138,14 @@ struct MainWindowView: View {
             }
         }
         .navigationTitle(AppInfo.displayName)
+        .accessibilityIdentifier("main.window")
         .background(MainWindowConfigurator())
         .onAppear {
-            columnVisibility = appState.settings.showSidebar ? .all : .detailOnly
+            if CommandLine.arguments.contains("-uitest") {
+                columnVisibility = .all
+            } else {
+                columnVisibility = appState.settings.showSidebar ? .all : .detailOnly
+            }
         }
         .onChange(of: appState.settings.showSidebar) { _, showSidebar in
             columnVisibility = showSidebar ? .all : .detailOnly
@@ -1008,5 +1217,6 @@ struct MainWindowView: View {
                 Text("\"\(tab.title)\" has disconnected.")
             }
         }
+        .updateAvailableAlert()
     }
 }
